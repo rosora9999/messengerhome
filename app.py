@@ -60,7 +60,7 @@ Quy tắc trả lời:
 - Nếu khách hỏi xem ảnh phòng cao cấp, trả lời đúng: "SEND_PHOTOS_CAO_CAP"
 - Nếu khách hỏi xem ảnh phòng (không nói rõ loại), hỏi lại: muốn xem phòng tiêu chuẩn hay cao cấp?
 - Nếu khách hỏi phòng còn trống không (không có ngày cụ thể), trả lời: "CHECK_AVAILABILITY"
-- Khi thu thập đủ thông tin đặt phòng (tên, check-in, check-out, loại phòng), trả lời: "SEND_PAYMENT_INFO"
+- Khi thu thập đủ thông tin đặt phòng (tên, SĐT, check-in, check-out, loại phòng), trả lời: "SEND_PAYMENT_INFO"
 - Hotline: 083 285 0488
 
 === THÔNG TIN PHÒNG ===
@@ -302,8 +302,14 @@ def handle_message(sender_id: str, message: dict):
             notify_owner(sender_id, info)
             return
 
-    # Parse ngày tháng tự động
-    if any(kw in lower for kw in DATE_KEYWORDS):
+    # Parse ngày tháng tự động - chỉ khi có từ khóa kiểm tra phòng rõ ràng
+    CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", "trong khong", "kiểm tra phòng", "kiem tra phong"]
+    DATE_ONLY_TRIGGERS = ["ngày mai", "ngay mai", "cuối tuần", "cuoi tuan", "thứ ", "thu "]
+    
+    has_check_trigger = any(kw in lower for kw in CHECK_TRIGGERS)
+    has_date_only = any(kw in lower for kw in DATE_ONLY_TRIGGERS)
+    
+    if has_check_trigger or has_date_only:
         checkin, checkout = parse_date_range(lower)
         if checkin and checkout:
             result = check_room_availability(checkin, checkout)
