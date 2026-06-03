@@ -490,7 +490,7 @@ def ask_gemini(sender_id: str, user_text: str) -> str:
             GROQ_API_URL,
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": "gemma2-9b-it",
                 "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
                 "max_tokens": 300,
                 "temperature": 0.7,
@@ -516,7 +516,9 @@ def ask_gemini(sender_id: str, user_text: str) -> str:
         return "Mình đang bận, bạn thử lại sau vài giây nhé!"
     except Exception as e:
         print(f"Loi Groq: {e}")
-        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
+        # Fallback sang Groq nếu Gemini lỗi
+    print("Gemini thất bại, fallback sang Groq...")
+    return ask_groq(sender_id, user_text)
 
 
 def ask_gemini(sender_id: str, user_text: str) -> str:
