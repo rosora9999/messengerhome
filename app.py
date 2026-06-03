@@ -61,6 +61,11 @@ Tổng cộng 3 phòng:
 - Gần chợ Phan Thiết & phố ăn uống (1.5km)
 - Gần café check-in: Mơ Hoang, Café Bồng Bềnh (2km)
 - Dễ di chuyển đến Mũi Né, NovaWorld, quán café ven biển (12km)
+=== CHÍNH SÁCH THÚ CƯNG ===
+- Chỉ nhận thú nuôi nhỏ dưới 4kg
+- Phụ thu 50.000đ/thú nuôi/đêm
+- Khách tự dọn chất thải, nếu homestay phải dọn sẽ thu phí 50.000đ - 200.000đ
+- Khách chịu trách nhiệm đền bù tài sản theo giá mua mới nếu có thiệt hại
 """
 
 conversation_history: dict[str, list] = {}
