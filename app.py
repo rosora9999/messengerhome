@@ -10,6 +10,11 @@ from date_parser import parse_date_range
 
 app = Flask(__name__)
 
+@app.after_request
+def add_ngrok_header(response):
+    response.headers["ngrok-skip-browser-warning"] = "true"
+    return response
+
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "YOUR_PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "YOUR_VERIFY_TOKEN")
 APP_SECRET        = os.environ.get("APP_SECRET", "YOUR_APP_SECRET")
