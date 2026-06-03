@@ -296,17 +296,25 @@ def handle_message(sender_id: str, message: dict):
         return
 
     # Khách báo đã cọc xong
-    if any(kw in lower for kw in ["da coc", "coc roi", "da chuyen", "chuyen roi", "da thanh toan", "đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán", "thanh toán rồi", "chuyen khoan roi", "ck roi", "ck xong", "đã ck", "chuyen xong"]):
+    CK_KEYWORDS = ["da coc", "coc roi", "da chuyen", "chuyen roi", "da thanh toan", 
+                    "đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán", 
+                    "thanh toán rồi", "chuyen khoan roi", "ck roi", "ck xong", "đã ck", 
+                    "chuyen xong", "ck rồi", "chuyển khoản rồi", "chuyển khoản xong",
+                    "đã chuyển khoản", "coc xong", "cọc xong", "ck", "chuyển r",
+                    "chuyển tiền rồi", "đã chuyển tiền"]
+    if any(kw in lower for kw in CK_KEYWORDS):
+        # Gửi cảm ơn + lưu ý cho khách
+        send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Home sẽ kiểm tra và xác nhận cho bạn sớm nhất nhé.")
+        import time; time.sleep(1)
+        send_text(sender_id, "Trong thời gian chờ, đây là một số lưu ý khi ở tại Trăng Non Homestay:")
+        import time; time.sleep(1)
+        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_LUU_Y, "is_reusable": True}}}})
+        # Thông báo cho chủ nhà nếu có thông tin đặt phòng
         if sender_id in pending_bookings:
-            info = pending_bookings.get(sender_id, {})
-            send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Home sẽ kiểm tra và xác nhận cho bạn sớm nhất nhé.")
-            import time; time.sleep(1)
-            send_text(sender_id, "Trong thời gian chờ, đây là một số lưu ý khi ở tại Trăng Non Homestay:")
-            import time; time.sleep(1)
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_LUU_Y, "is_reusable": True}}}})
             import time; time.sleep(2)
+            info = pending_bookings.get(sender_id, {})
             notify_owner(sender_id, info)
-            return
+        return
 
     # Parse ngày tháng tự động - chỉ khi có từ khóa kiểm tra phòng rõ ràng
     CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", "trong khong", "kiểm tra phòng", "kiem tra phong"]
@@ -489,6 +497,17 @@ def ask_groq(sender_id: str, user_text: str) -> str:
         )
         resp.raise_for_status()
         reply_text = resp.json()["choices"][0]["message"]["content"].strip()
+        
+        # Nếu AI hỏi SĐT → bỏ qua, kích hoạt SEND_PAYMENT_INFO luôn
+        SDT_PHRASES = ["số điện thoại", "so dien thoai", "phone", "sđt", "sdt", 
+                       "liên hệ", "lien he", "số đt", "so dt"]
+        if any(p in reply_text.lower() for p in SDT_PHRASES):
+            # Kiểm tra xem trong lịch sử đã có tên chưa
+            full_history = " ".join([m.get("content","") for m in history])
+            has_name = any(kw in full_history.lower() for kw in ["tên", "ten", "mình là", "minh la", "tôi là", "toi la"])
+            if has_name:
+                return "SEND_PAYMENT_INFO"
+        
         history.append({"role": "assistant", "content": reply_text})
         return reply_text
     except requests.exceptions.Timeout:
