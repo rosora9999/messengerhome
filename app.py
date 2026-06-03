@@ -332,7 +332,7 @@ def handle_message(sender_id: str, message: dict):
             send_text(sender_id, result)
             return
 
-    reply = ask_gemini(sender_id, text)
+    reply = ask_groq(sender_id, text)
 
     if "SEND_PHOTOS_TIEU_CHUAN" in reply:
         send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
@@ -476,10 +476,10 @@ def handle_postback(sender_id: str, postback: dict):
     if reply:
         send_text(sender_id, reply)
     else:
-        send_text(sender_id, ask_gemini(sender_id, postback.get("title", payload)))
+        send_text(sender_id, ask_groq(sender_id, postback.get("title", payload)))
 
 
-def ask_gemini(sender_id: str, user_text: str) -> str:
+def ask_groq(sender_id: str, user_text: str) -> str:
     history = conversation_history.setdefault(sender_id, [])
     history.append({"role": "user", "content": user_text})
     if len(history) > MAX_HISTORY * 2:
@@ -521,7 +521,7 @@ def ask_gemini(sender_id: str, user_text: str) -> str:
     return ask_groq(sender_id, user_text)
 
 
-def ask_gemini(sender_id: str, user_text: str) -> str:
+def ask_groq(sender_id: str, user_text: str) -> str:
     history = conversation_history.setdefault(sender_id, [])
     history.append({"role": "user", "parts": [{"text": user_text}]})
     if len(history) > MAX_HISTORY * 2:
