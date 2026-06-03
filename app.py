@@ -296,13 +296,15 @@ def handle_message(sender_id: str, message: dict):
         return
 
     # Khách báo đã cọc xong
-    if any(kw in lower for kw in ["da coc", "coc roi", "da chuyen", "chuyen roi", "da thanh toan"]):
+    if any(kw in lower for kw in ["da coc", "coc roi", "da chuyen", "chuyen roi", "da thanh toan", "đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán", "thanh toán rồi", "chuyen khoan roi", "ck roi", "ck xong", "đã ck", "chuyen xong"]):
         if sender_id in pending_bookings:
-            info = pending_bookings[sender_id]
-            send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Chủ nhà sẽ kiểm tra và xác nhận sớm nhất.")
+            info = pending_bookings.get(sender_id, {})
+            send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Home sẽ kiểm tra và xác nhận cho bạn sớm nhất nhé.")
             import time; time.sleep(1)
             send_text(sender_id, "Trong thời gian chờ, đây là một số lưu ý khi ở tại Trăng Non Homestay:")
+            import time; time.sleep(1)
             _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_LUU_Y, "is_reusable": True}}}})
+            import time; time.sleep(2)
             notify_owner(sender_id, info)
             return
 
