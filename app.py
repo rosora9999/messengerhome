@@ -14,11 +14,13 @@ PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "YOUR_PAGE_ACCESS_TOKEN"
 VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "YOUR_VERIFY_TOKEN")
 APP_SECRET        = os.environ.get("APP_SECRET", "YOUR_APP_SECRET")
 GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
+OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY")
 GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
 GOHOST_API_KEY    = os.environ.get("GOHOST_API_KEY", "YOUR_GOHOST_API_KEY")
 GOHOST_API_SECRET = os.environ.get("GOHOST_API_SECRET", "YOUR_GOHOST_API_SECRET")
 
 GRAPH_API_URL  = "https://graph.facebook.com/v19.0/me/messages"
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 GOHOST_API_URL = "https://platform.gohost.vn/pms/api/public/v1"
@@ -332,7 +334,7 @@ def handle_message(sender_id: str, message: dict):
             send_text(sender_id, result)
             return
 
-    reply = ask_groq(sender_id, text)
+    reply = ask_openai(sender_id, text)
 
     if "SEND_PHOTOS_TIEU_CHUAN" in reply:
         send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
@@ -476,16 +478,60 @@ def handle_postback(sender_id: str, postback: dict):
     if reply:
         send_text(sender_id, reply)
     else:
-        send_text(sender_id, ask_groq(sender_id, postback.get("title", payload)))
+        send_text(sender_id, ask_openai(sender_id, postback.get("title", payload)))
 
 
-def ask_groq(sender_id: str, user_text: str) -> str:
+def ask_openai(sender_id: str, user_text: str) -> str:
     history = conversation_history.setdefault(sender_id, [])
     history.append({"role": "user", "content": user_text})
     if len(history) > MAX_HISTORY * 2:
         history[:] = history[-(MAX_HISTORY * 2):]
 
     try:
+        print(f"Đang gọi OpenAI...")
+        resp = requests.post(
+            OPENAI_API_URL,
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
+                "max_tokens": 400,
+                "temperature": 0.7,
+            },
+            timeout=15,
+        )
+        print(f"OpenAI status: {resp.status_code}")
+        resp.raise_for_status()
+        reply_text = resp.json()["choices"][0]["message"]["content"].strip()
+        print(f"OpenAI reply: {reply_text[:80]}")
+
+        # Lọc nếu AI hỏi SĐT
+        SDT_PHRASES = ["số điện thoại", "phone", "sđt", "số đt"]
+        if any(p in reply_text.lower() for p in SDT_PHRASES):
+            full_history = " ".join([m.get("content","") for m in history])
+            has_name = any(kw in full_history.lower() for kw in ["tên", "mình là", "tôi là", "em là"])
+            if has_name:
+                return "SEND_PAYMENT_INFO"
+
+        history.append({"role": "assistant", "content": reply_text})
+        return reply_text
+
+    except requests.exceptions.Timeout:
+        print("OPENAI TIMEOUT!")
+        return "Mình đang bận, bạn thử lại sau vài giây nhé!"
+    except Exception as e:
+        print(f"LỖI OPENAI: {e}")
+        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
+
+
+def ask_openai(sender_id: str, user_text: str) -> str:
+    history = conversation_history.setdefault(sender_id, [])
+    history.append({"role": "user", "content": user_text})
+    if len(history) > MAX_HISTORY * 2:
+        history[:] = history[-(MAX_HISTORY * 2):]
+
+    try:
+        print(f"Dang goi Groq API... key: {GROQ_API_KEY[:10]}...")
         resp = requests.post(
             GROQ_API_URL,
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
@@ -497,8 +543,10 @@ def ask_groq(sender_id: str, user_text: str) -> str:
             },
             timeout=15,
         )
+        print(f"Groq response status: {resp.status_code}")
         resp.raise_for_status()
         reply_text = resp.json()["choices"][0]["message"]["content"].strip()
+        print(f"Groq reply: {reply_text[:50]}")
         
         # Nếu AI hỏi SĐT → bỏ qua, kích hoạt SEND_PAYMENT_INFO luôn
         SDT_PHRASES = ["số điện thoại", "so dien thoai", "phone", "sđt", "sdt", 
@@ -518,10 +566,53 @@ def ask_groq(sender_id: str, user_text: str) -> str:
         print(f"Loi Groq: {e}")
         # Fallback sang Groq nếu Gemini lỗi
     print("Gemini thất bại, fallback sang Groq...")
-    return ask_groq(sender_id, user_text)
+    return ask_openai(sender_id, user_text)
 
 
-def ask_groq(sender_id: str, user_text: str) -> str:
+def ask_openai(sender_id: str, user_text: str) -> str:
+    history = conversation_history.setdefault(sender_id, [])
+    history.append({"role": "user", "content": user_text})
+    if len(history) > MAX_HISTORY * 2:
+        history[:] = history[-(MAX_HISTORY * 2):]
+
+    try:
+        print(f"Đang gọi OpenAI...")
+        resp = requests.post(
+            OPENAI_API_URL,
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
+                "max_tokens": 400,
+                "temperature": 0.7,
+            },
+            timeout=15,
+        )
+        print(f"OpenAI status: {resp.status_code}")
+        resp.raise_for_status()
+        reply_text = resp.json()["choices"][0]["message"]["content"].strip()
+        print(f"OpenAI reply: {reply_text[:80]}")
+
+        # Lọc nếu AI hỏi SĐT
+        SDT_PHRASES = ["số điện thoại", "phone", "sđt", "số đt"]
+        if any(p in reply_text.lower() for p in SDT_PHRASES):
+            full_history = " ".join([m.get("content","") for m in history])
+            has_name = any(kw in full_history.lower() for kw in ["tên", "mình là", "tôi là", "em là"])
+            if has_name:
+                return "SEND_PAYMENT_INFO"
+
+        history.append({"role": "assistant", "content": reply_text})
+        return reply_text
+
+    except requests.exceptions.Timeout:
+        print("OPENAI TIMEOUT!")
+        return "Mình đang bận, bạn thử lại sau vài giây nhé!"
+    except Exception as e:
+        print(f"LỖI OPENAI: {e}")
+        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
+
+
+def ask_openai(sender_id: str, user_text: str) -> str:
     history = conversation_history.setdefault(sender_id, [])
     history.append({"role": "user", "parts": [{"text": user_text}]})
     if len(history) > MAX_HISTORY * 2:
