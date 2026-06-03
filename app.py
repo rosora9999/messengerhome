@@ -20,7 +20,7 @@ GOHOST_API_SECRET = os.environ.get("GOHOST_API_SECRET", "YOUR_GOHOST_API_SECRET"
 
 GRAPH_API_URL  = "https://graph.facebook.com/v19.0/me/messages"
 GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent"
 GOHOST_API_URL = "https://platform.gohost.vn/pms/api/public/v1"
 
 TENANT_ID       = "9d37978e-2409-402d-a286-082d82f91c27"
