@@ -76,6 +76,11 @@ Không có bãi xe hơi. Đậu đường Lê Duẩn, đi bộ vào ~50m, tự b
 
 === CHÍNH SÁCH THÚ CƯNG ===
 Dưới 4kg, phụ thu 50k/con/đêm. Khách tự dọn chất thải.
+=== CHÍNH SÁCH HỦY / ĐỔI NGÀY ===
+- Hủy trước 7 ngày: hoàn 100% cọc
+- Hủy trong vòng 7 ngày: thu 50% cọc
+- Hủy trong vòng 1 ngày: thu 100% cọc (không hoàn)
+- Áp dụng tương tự cho đổi ngày
 
 === VỊ TRÍ ===
 17/14B Lương Văn Năm, KP3, P. Phú Trinh, Phan Thiết
