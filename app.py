@@ -334,21 +334,22 @@ def handle_message(sender_id: str, message: dict):
             notify_owner(sender_id, pending_bookings[sender_id])
         return
 
-    # Kiểm tra phòng tự động khi có ngày
+    # Parse ngày TRƯỚC TIÊN - ưu tiên cao nhất
     checkin, checkout = parse_date_range(lower)
     if checkin and checkout:
+        # Có đủ 2 ngày → kiểm tra phòng luôn
         session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
         send_text(sender_id, check_room_availability(checkin, checkout))
         return
     elif checkin and not checkout:
-        # Chỉ có 1 ngày - lưu làm checkin, hỏi checkout
+        # Chỉ có 1 ngày → lưu checkin, hỏi checkout
         session_checkin[sender_id] = {"checkin": checkin, "checkout": None}
-        from datetime import datetime
         ci_str = datetime.strptime(checkin, "%Y-%m-%d").strftime("%d/%m/%Y")
         send_text(sender_id, f"Check-in {ci_str}, bạn muốn trả phòng ngày nào?")
         return
-    elif not checkin and sender_id in session_checkin and session_checkin[sender_id].get("checkout") is None:
-        # Khách nhắn ngày checkout sau
+    
+    # Chỉ có 1 ngày trong tin nhắn tiếp theo (checkout)
+    if not checkin and sender_id in session_checkin and session_checkin[sender_id].get("checkout") is None:
         checkout_dt = parse_single_date(lower)
         if checkout_dt:
             checkin = session_checkin[sender_id]["checkin"]
