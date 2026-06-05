@@ -2,7 +2,7 @@ import os
 import hmac
 import hashlib
 import random
-import json
+import re
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 import requests
@@ -15,25 +15,21 @@ def add_ngrok_header(response):
     response.headers["ngrok-skip-browser-warning"] = "true"
     return response
 
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "YOUR_PAGE_ACCESS_TOKEN")
-VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "YOUR_VERIFY_TOKEN")
-APP_SECRET        = os.environ.get("APP_SECRET", "YOUR_APP_SECRET")
-GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
-OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY")
-GOHOST_API_KEY    = os.environ.get("GOHOST_API_KEY", "YOUR_GOHOST_API_KEY")
-GOHOST_API_SECRET = os.environ.get("GOHOST_API_SECRET", "YOUR_GOHOST_API_SECRET")
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "")
+VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "")
+APP_SECRET        = os.environ.get("APP_SECRET", "")
+OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
+GOHOST_API_KEY    = os.environ.get("GOHOST_API_KEY", "")
+GOHOST_API_SECRET = os.environ.get("GOHOST_API_SECRET", "")
 
 GRAPH_API_URL  = "https://graph.facebook.com/v19.0/me/messages"
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
 GOHOST_API_URL = "https://platform.gohost.vn/pms/api/public/v1"
 
 TENANT_ID       = "9d37978e-2409-402d-a286-082d82f91c27"
 ROOM_TIEU_CHUAN = "6c621484-9b51-46de-8448-917bb677e14d"
 ROOM_CAO_CAP    = "c7613c8a-5f93-4d71-8ae0-1ee24a2e6585"
-
-# ID Messenger của chủ nhà
-OWNER_ID = "9639287556127249"
+OWNER_ID        = "9639287556127249"
 
 PHOTO_PAYMENT = "https://res.cloudinary.com/dlmttxts9/image/upload/v1780482041/stk_Thien_bidv_ebjjd5.jpg"
 PHOTO_LUU_Y   = "https://res.cloudinary.com/dlmttxts9/image/upload/v1780482638/luu_y_kulrzc.jpg"
@@ -56,44 +52,52 @@ PHOTOS_CAO_CAP = [
 SYSTEM_PROMPT = """Bạn là trợ lý AI của Homestay Trăng Non tại Phan Thiết.
 Nhiệm vụ: tư vấn và hỗ trợ khách hàng qua Facebook Messenger.
 
-Quy tắc trả lời:
-- Luôn trả lời bằng tiếng Việt, thân thiện, nhiệt tình như nhân viên lễ tân
-- Ngắn gọn, dễ hiểu (dưới 200 từ)
-- KHÔNG dùng emoji trong câu trả lời
-- Luôn viết tiếng Việt có đầy đủ dấu trong mọi câu trả lời
-- KHÔNG bắt đầu bằng lời chào như "Xin chào", "Chào bạn" cho mỗi tin nhắn
-- Trả lời thẳng vào câu hỏi của khách
-- Không bịa thông tin nếu không chắc chắn
-- Nếu khách hỏi xem ảnh phòng tiêu chuẩn, trả lời đúng: "SEND_PHOTOS_TIEU_CHUAN"
-- Nếu khách hỏi xem ảnh phòng cao cấp, trả lời đúng: "SEND_PHOTOS_CAO_CAP"
-- Nếu khách hỏi xem ảnh phòng (không nói rõ loại), hỏi lại: muốn xem phòng tiêu chuẩn hay cao cấp?
-- Nếu khách hỏi phòng còn trống không (không có ngày cụ thể), trả lời: "CHECK_AVAILABILITY"
-- Khi thu thập đủ thông tin đặt phòng (tên, SĐT, check-in, check-out, loại phòng), trả lời: "SEND_PAYMENT_INFO"
+PHONG CÁCH GIAO TIẾP:
+- Tự xưng là "home", gọi khách là "bạn"
+- Nhắn tin ngắn gọn, tự nhiên như nhắn Zalo
+- Mỗi ý một dòng ngắn, thân thiện, đôi khi dùng "ạ", "nha", "nhé", "à"
+- KHÔNG dùng emoji
+- Luôn viết tiếng Việt có đầy đủ dấu
+
+QUY TẮC XỬ LÝ:
+- Nếu bạn hỏi xem ảnh phòng tiêu chuẩn → trả lời đúng: "SEND_PHOTOS_TIEU_CHUAN"
+- Nếu bạn hỏi xem ảnh phòng cao cấp → trả lời đúng: "SEND_PHOTOS_CAO_CAP"
+- Nếu bạn hỏi xem ảnh phòng không rõ loại → hỏi lại loại phòng
+- Nếu bạn hỏi còn phòng không (không có ngày) → trả lời: "CHECK_AVAILABILITY"
+- Khi tính giá: thứ 2-5 là trong tuần, thứ 6-7-CN và lễ tết là cuối tuần
 - Hotline: 083 285 0488
 
+QUY TẮC KHI KHÁCH HỎI PHÒNG:
+1. Hỏi ngày check-in và check-out
+2. Sau khi có ngày → trả lời: "CHECK_AVAILABILITY_WITH_DATE" để hệ thống kiểm tra và báo phòng còn trống + giá
+3. KHÔNG hỏi khách muốn loại phòng nào — hệ thống tự báo còn phòng nào
+
+QUY TẮC ĐẶT PHÒNG - RẤT QUAN TRỌNG:
+- Khi khách nói muốn đặt phòng → dựa vào thông tin check-in/out đã có → NGAY LẬP TỨC trả lời: "SEND_PAYMENT_INFO"
+- KHÔNG hỏi thêm tên, số điện thoại, loại phòng, số người hay bất kỳ thông tin nào khác
+- Ví dụ: khách đã nói in 27/6 out 28/6, sau đó nói "đặt phòng" → trả lời "SEND_PAYMENT_INFO" ngay
+
 === THÔNG TIN PHÒNG ===
-Tổng cộng 3 phòng:
 1. Phòng Tiêu Chuẩn (2 phòng): Trong tuần 370k, cuối tuần 400k/đêm
 2. Phòng Cao Cấp (1 phòng): Trong tuần 440k, cuối tuần 480k/đêm
 
 === GIỜ CHECK-IN / CHECK-OUT ===
-Check-in: 14:00 / Check-out: 12:00 / Sớm/trễ: phụ phí 50k/giờ
+Check-in: 14:00 / Check-out: 12:00 / Sớm-trễ: phụ phí 50k/giờ
 
 === CHÍNH SÁCH CỌC ===
-- Yêu cầu cọc 50% tổng tiền phòng để giữ phòng
-- Nếu khách cọc ít hơn 50% vẫn chấp nhận
-- KHÔNG giữ phòng nếu khách không cọc
+- Cọc 50% tổng tiền phòng để giữ phòng (ít hơn vẫn ok)
+- KHÔNG giữ phòng nếu không cọc
 
 === CHÍNH SÁCH HỦY / ĐỔI NGÀY ===
 - Hủy trước 7 ngày: hoàn 100% cọc
 - Hủy trong vòng 7 ngày: thu 50% cọc
-- Hủy trong vòng 1 ngày: thu 100% cọc (không hoàn)
+- Hủy trong vòng 1 ngày: thu 100% cọc
 
 === XE THUÊ ===
 Xe ga 150k/ngày (24h) — Honda Vision hoặc Airblade
 
 === ĐỖ XE HƠI ===
-Không có bãi xe hơi. Đậu đường Lê Duẩn, đi bộ vào ~50m, tự bảo quản xe.
+Không có bãi xe. Đậu đường Lê Duẩn, đi bộ vào 50m, tự bảo quản.
 
 === CHÍNH SÁCH THÚ CƯNG ===
 Dưới 4kg, phụ thu 50k/con/đêm. Khách tự dọn chất thải.
@@ -103,17 +107,16 @@ Dưới 4kg, phụ thu 50k/con/đêm. Khách tự dọn chất thải.
 Gần biển Đồi Dương (2km), chợ (1.5km), café Mơ Hoang/Bồng Bềnh (2km), Mũi Né (12km)
 """
 
-# Lưu thông tin đặt phòng đang chờ xác nhận
-# pending_bookings[sender_id] = {thông tin đặt phòng}
+conversation_history: dict = {}
 pending_bookings: dict = {}
-conversation_history: dict[str, list] = {}
 MAX_HISTORY = 10
 
-DATE_KEYWORDS = [
-    "ngày", "tháng", "tuần", "hôm nay", "ngày mai", "ngày kia",
-    "thứ", "cuối tuần", "còn phòng", "có phòng", "trống không",
-    "check", "/",
-]
+CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", "kiểm tra phòng"]
+DATE_TRIGGERS  = ["ngày mai", "cuối tuần", "thứ ", "tuần tới"]
+CK_KEYWORDS    = ["đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán",
+                  "cọc xong", "chuyển xong", "ck rồi", "ck xong", "đã ck",
+                  "chuyển khoản rồi", "chuyển khoản xong", "đã chuyển khoản",
+                  "ck", "chuyển r", "đã chuyển tiền", "da coc", "coc roi"]
 
 
 def gohost_headers():
@@ -126,9 +129,10 @@ def gohost_headers():
 
 def check_room_availability(checkin: str, checkout: str) -> str:
     try:
-        # Lấy booking từ checkin-1 để bắt booking đang ở dở
         ci_dt = datetime.strptime(checkin, "%Y-%m-%d")
+        co_dt = datetime.strptime(checkout, "%Y-%m-%d")
         start = (ci_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+
         resp = requests.get(
             f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
             headers=gohost_headers(),
@@ -137,109 +141,103 @@ def check_room_availability(checkin: str, checkout: str) -> str:
         )
         resp.raise_for_status()
         bookings = resp.json().get("data", [])
-        # Lọc booking còn hiệu lực VÀ overlap với khoảng ngày check-in/out
-        ci_dt = datetime.strptime(checkin, "%Y-%m-%d")
-        co_dt = datetime.strptime(checkout, "%Y-%m-%d")
+
         active = []
         for b in bookings:
             if b.get("status") in ("cancelled", "no_show"):
                 continue
             b_ci = datetime.strptime(b.get("checkin_date", "2000-01-01"), "%Y-%m-%d")
             b_co = datetime.strptime(b.get("checkout_date", "2000-01-01"), "%Y-%m-%d")
-            # Overlap nếu b_ci < co_dt VÀ b_co > ci_dt
             if b_ci < co_dt and b_co > ci_dt:
                 active.append(b)
 
-        # Đếm phòng từ room_type name trong booking_rooms
         booked_tc = 0
         booked_cc = 0
         for b in active:
-            rooms = b.get("booking_rooms", [])
-            for r in rooms:
+            for r in b.get("booking_rooms", []):
                 room_type = r.get("room_type", "").lower()
                 if "tieu chuan" in room_type or "tiêu chuẩn" in room_type:
                     booked_tc += 1
                 elif "cao cap" in room_type or "cao cấp" in room_type:
                     booked_cc += 1
-        print(f"Booked TC: {booked_tc}, CC: {booked_cc}")
+
         con_tc = max(0, 2 - booked_tc)
         con_cc = max(0, 1 - booked_cc)
 
-        ci = datetime.strptime(checkin, "%Y-%m-%d").strftime("%d/%m/%Y")
-        co = datetime.strptime(checkout, "%Y-%m-%d").strftime("%d/%m/%Y")
-        result = f"Tinh trang phong {ci} - {co}:\n\n"
-        result += f"Phong Tieu Chuan: {'Con ' + str(con_tc) + ' phong' if con_tc > 0 else 'Het phong'}\n"
-        result += f"Phong Cao Cap: {'Con phong' if con_cc > 0 else 'Het phong'}\n"
+        ci = ci_dt.strftime("%d/%m/%Y")
+        co = co_dt.strftime("%d/%m/%Y")
+        result = f"Tình trạng phòng {ci} - {co}:\n\n"
+        result += f"Phòng Tiêu Chuẩn: {'Còn ' + str(con_tc) + ' phòng' if con_tc > 0 else 'Hết phòng'}\n"
+        result += f"Phòng Cao Cấp: {'Còn phòng' if con_cc > 0 else 'Hết phòng'}\n"
         if con_tc == 0 and con_cc == 0:
-            result += "\nRat tiec het phong. Ban thu ngay khac hoac lien he 083 285 0488."
+            result += "\nRất tiếc hết phòng. Bạn thử ngày khác hoặc liên hệ 083 285 0488."
         else:
-            result += "\nBan muon dat phong loai nao?"
+            result += "\nBạn muốn đặt phòng loại nào?"
         return result
     except Exception as e:
-        print(f"Loi GoHost: {e}")
-        return "Hiện không kiểm tra được lịch phòng. Liên hệ 083 285 0488 để kiểm tra nhé!"
+        print(f"Lỗi GoHost: {e}")
+        return "Hiện không kiểm tra được lịch phòng. Liên hệ 083 285 0488 nhé!"
 
 
 def create_gohost_booking(info: dict) -> bool:
-    """Tạo đơn đặt phòng trên GoHost."""
     try:
-        room_type_id = ROOM_CAO_CAP if "cao cap" in info.get("loai_phong", "").lower() else ROOM_TIEU_CHUAN
-        payload = {
-            "room_type_id": room_type_id,
-            "checkin_date": info["checkin"],
-            "checkout_date": info["checkout"],
-            "guest_name": info["ten"],
-            "guest_phone": info["sdt"],
-            "num_adults": int(info.get("so_nguoi", 1)),
-            "note": f"Dat phong qua Messenger bot. Co coc.",
-        }
+        room_type_id = ROOM_CAO_CAP if "cao" in info.get("loai_phong", "").lower() else ROOM_TIEU_CHUAN
         resp = requests.post(
             f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
             headers=gohost_headers(),
-            json=payload,
+            json={
+                "room_type_id": room_type_id,
+                "checkin_date": info["checkin"],
+                "checkout_date": info["checkout"],
+                "guest_name": info["ten"],
+                "guest_phone": info.get("sdt", ""),
+                "num_adults": 1,
+            },
             timeout=10,
         )
         resp.raise_for_status()
-        print(f"Tao don GoHost thanh cong: {resp.json()}")
         return True
     except Exception as e:
-        print(f"Loi tao don GoHost: {e}")
+        print(f"Lỗi tạo đơn GoHost: {e}")
         return False
 
 
 def notify_owner(sender_id: str, info: dict):
-    """Gửi thông báo cho chủ nhà kèm nút Xác nhận / Từ chối."""
-    ci = datetime.strptime(info["checkin"], "%Y-%m-%d").strftime("%d/%m/%Y")
-    co = datetime.strptime(info["checkout"], "%Y-%m-%d").strftime("%d/%m/%Y")
+    ci = datetime.strptime(info.get("checkin","2000-01-01"), "%Y-%m-%d").strftime("%d/%m/%Y") if info.get("checkin") else "?"
+    co = datetime.strptime(info.get("checkout","2000-01-01"), "%Y-%m-%d").strftime("%d/%m/%Y") if info.get("checkout") else "?"
     msg = (
-        f"DON DAT PHONG MOI!\n\n"
-        f"Tên: {info['ten']}\n"
-        f"SĐT: {info['sdt']}\n"
+        f"ĐƠN ĐẶT PHÒNG MỚI!\n\n"
+        f"Tên: {info.get('ten','?')}\n"
         f"Check-in: {ci}\n"
         f"Check-out: {co}\n"
-        f"Loại phòng: {info['loai_phong']}\n"
-        f"Số người: {info.get('so_nguoi', 1)}\n\n"
+        f"Loại phòng: {info.get('loai_phong','?')}\n\n"
         f"Khách đã báo đã cọc. Bạn kiểm tra và xác nhận nhé!"
     )
-    # Gửi tin nhắn cho chủ nhà kèm nút
     _send({
         "recipient": {"id": OWNER_ID},
         "message": {
             "text": msg,
             "quick_replies": [
-                {
-                    "content_type": "text",
-                    "title": "XÁC NHẬN ĐẶT PHÒNG",
-                    "payload": f"CONFIRM_BOOKING:{sender_id}",
-                },
-                {
-                    "content_type": "text",
-                    "title": "TỪ CHỐI",
-                    "payload": f"REJECT_BOOKING:{sender_id}",
-                },
+                {"content_type": "text", "title": "XÁC NHẬN ĐẶT PHÒNG", "payload": f"CONFIRM_BOOKING:{sender_id}"},
+                {"content_type": "text", "title": "TỪ CHỐI", "payload": f"REJECT_BOOKING:{sender_id}"},
             ],
         },
     })
+
+
+def extract_booking_info(history: list) -> dict:
+    full_text = " ".join([m.get("content", "") for m in history])
+    info = {"ten": "Khách", "sdt": "", "checkin": "", "checkout": "", "loai_phong": "Tiêu chuẩn"}
+    sdt = re.search(r"(0\d{9})", full_text)
+    if sdt:
+        info["sdt"] = sdt.group(1)
+    if "cao cấp" in full_text.lower() or "cao cap" in full_text.lower():
+        info["loai_phong"] = "Cao cấp"
+    checkin, checkout = parse_date_range(full_text)
+    if checkin:
+        info["checkin"] = checkin
+        info["checkout"] = checkout or (datetime.strptime(checkin, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    return info
 
 
 @app.route("/webhook", methods=["GET"])
@@ -257,7 +255,6 @@ def receive_message():
     signature = request.headers.get("X-Hub-Signature-256", "")
     if not verify_signature(request.data, signature):
         return "Unauthorized", 401
-
     data = request.get_json()
     if data.get("object") == "page":
         for entry in data.get("entry", []):
@@ -279,11 +276,6 @@ def handle_message(sender_id: str, message: dict):
 
     lower = text.lower()
 
-    # Chủ nhà nhấn XÁC NHẬN hoặc TỪ CHỐI (quick reply từ thông báo)
-    if lower.startswith("xac nhan dat phong") or lower.startswith("tu choi"):
-        # Xử lý trong handle_postback với payload
-        return
-
     if lower in ("hi", "hello", "xin chào", "chào", "bắt đầu"):
         send_quick_replies(
             sender_id,
@@ -302,129 +294,71 @@ def handle_message(sender_id: str, message: dict):
         send_text(sender_id, "Đã xóa lịch sử. Chúng ta bắt đầu lại nhé!")
         return
 
-    # Khách báo đã cọc xong
-    CK_KEYWORDS = ["da coc", "coc roi", "da chuyen", "chuyen roi", "da thanh toan", 
-                    "đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán", 
-                    "thanh toán rồi", "chuyen khoan roi", "ck roi", "ck xong", "đã ck", 
-                    "chuyen xong", "ck rồi", "chuyển khoản rồi", "chuyển khoản xong",
-                    "đã chuyển khoản", "coc xong", "cọc xong", "ck", "chuyển r",
-                    "chuyển tiền rồi", "đã chuyển tiền"]
+    # Khách báo đã cọc
     if any(kw in lower for kw in CK_KEYWORDS):
-        # Gửi cảm ơn + lưu ý cho khách
-        send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Home sẽ kiểm tra và xác nhận cho bạn sớm nhất nhé.")
+        send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Home sẽ kiểm tra và xác nhận sớm nhất nhé.")
         import time; time.sleep(1)
         send_text(sender_id, "Trong thời gian chờ, đây là một số lưu ý khi ở tại Trăng Non Homestay:")
         import time; time.sleep(1)
         _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_LUU_Y, "is_reusable": True}}}})
-        # Thông báo cho chủ nhà nếu có thông tin đặt phòng
         if sender_id in pending_bookings:
             import time; time.sleep(2)
-            info = pending_bookings.get(sender_id, {})
-            notify_owner(sender_id, info)
+            notify_owner(sender_id, pending_bookings[sender_id])
         return
 
-    # Parse ngày tháng tự động - chỉ khi có từ khóa kiểm tra phòng rõ ràng
-    CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", "trong khong", "kiểm tra phòng", "kiem tra phong"]
-    DATE_ONLY_TRIGGERS = ["ngày mai", "ngay mai", "cuối tuần", "cuoi tuan", "thứ ", "thu "]
-    
-    has_check_trigger = any(kw in lower for kw in CHECK_TRIGGERS)
-    has_date_only = any(kw in lower for kw in DATE_ONLY_TRIGGERS)
-    
-    if has_check_trigger or has_date_only:
+    # Kiểm tra phòng tự động
+    if any(kw in lower for kw in CHECK_TRIGGERS + DATE_TRIGGERS):
         checkin, checkout = parse_date_range(lower)
         if checkin and checkout:
-            result = check_room_availability(checkin, checkout)
-            send_text(sender_id, result)
+            send_text(sender_id, check_room_availability(checkin, checkout))
             return
 
     reply = ask_openai(sender_id, text)
 
     if "SEND_PHOTOS_TIEU_CHUAN" in reply:
         send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
-        send_photos(sender_id, PHOTOS_TIEU_CHUAN, limit=4)
+        send_photos(sender_id, PHOTOS_TIEU_CHUAN)
     elif "SEND_PHOTOS_CAO_CAP" in reply:
         send_text(sender_id, "Ảnh phòng Cao Cấp:")
-        send_photos(sender_id, PHOTOS_CAO_CAP, limit=4)
+        send_photos(sender_id, PHOTOS_CAO_CAP)
     elif "SEND_PAYMENT_INFO" in reply:
-        # Lưu thông tin đặt phòng từ lịch sử hội thoại
-        history = conversation_history.get(sender_id, [])
-        info = extract_booking_info(history)
-        if info:
-            pending_bookings[sender_id] = info
+        info = extract_booking_info(conversation_history.get(sender_id, []))
+        pending_bookings[sender_id] = info
         send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
+        import time; time.sleep(1)
         _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
         import time; time.sleep(1)
-        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho chúng mình nhé!")
+        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
     elif "CHECK_AVAILABILITY" in reply:
-        send_quick_replies(
-            sender_id,
-            "Bạn muốn kiểm tra phòng thời gian nào?",
-            [
-                {"title": "Cuối tuần này", "payload": "AVAIL_THIS_WEEKEND"},
-                {"title": "Tuần tới",      "payload": "AVAIL_NEXT_WEEK"},
-                {"title": "Nhập ngày khác","payload": "AVAIL_CUSTOM"},
-            ],
-        )
+        send_quick_replies(sender_id, "Bạn muốn kiểm tra phòng thời gian nào?", [
+            {"title": "Cuối tuần này", "payload": "AVAIL_THIS_WEEKEND"},
+            {"title": "Tuần tới",      "payload": "AVAIL_NEXT_WEEK"},
+            {"title": "Nhập ngày khác","payload": "AVAIL_CUSTOM"},
+        ])
     else:
         send_text(sender_id, reply)
-
-
-def extract_booking_info(history: list) -> dict:
-    """Trích xuất thông tin đặt phòng từ lịch sử hội thoại."""
-    import re
-    full_text = " ".join([m.get("content", "") for m in history])
-
-    info = {
-        "ten": "Khach",
-        "sdt": "Chua co",
-        "checkin": "",
-        "checkout": "",
-        "loai_phong": "Tieu chuan",
-        "so_nguoi": "1",
-    }
-
-    # Tìm SĐT
-    sdt = re.search(r"(0\d{9})", full_text)
-    if sdt:
-        info["sdt"] = sdt.group(1)
-
-    # Tìm loại phòng
-    if "cao cap" in full_text.lower():
-        info["loai_phong"] = "Cao cap"
-
-    # Tìm ngày
-    checkin, checkout = parse_date_range(full_text)
-    if checkin:
-        info["checkin"] = checkin
-        info["checkout"] = checkout or (datetime.strptime(checkin, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    return info
 
 
 def handle_postback(sender_id: str, postback: dict):
     payload = postback.get("payload", "")
 
-    # Chủ nhà xác nhận đặt phòng
     if payload.startswith("CONFIRM_BOOKING:"):
         guest_id = payload.split(":")[1]
-        info = pending_bookings.get(guest_id)
+        info = pending_bookings.get(guest_id, {})
         if info:
             success = create_gohost_booking(info)
             if success:
-                send_text(sender_id, f"Da tao don tren GoHost thanh cong!\nKhach: {info['ten']} - {info['sdt']}")
-                send_text(guest_id, f"Phòng của bạn đã được xác nhận! Hẹn gặp bạn tại Trăng Non Homestay. Mọi thắc mắc liên hệ 083 285 0488 nhé!")
+                send_text(sender_id, f"Đã tạo đơn trên GoHost!\nKhách: {info.get('ten','?')}")
+                send_text(guest_id, "Phòng của bạn đã được xác nhận! Hẹn gặp bạn tại Trăng Non Homestay. Liên hệ 083 285 0488 nếu cần nhé!")
                 pending_bookings.pop(guest_id, None)
             else:
-                send_text(sender_id, "Lỗi tạo đơn trên GoHost. Vui lòng tạo thủ công nhé!")
-        else:
-            send_text(sender_id, "Không tìm thấy thông tin đặt phòng. Có thể khách đã hủy.")
+                send_text(sender_id, "Lỗi tạo đơn GoHost. Vui lòng tạo thủ công nhé!")
         return
 
-    # Chủ nhà từ chối
     if payload.startswith("REJECT_BOOKING:"):
         guest_id = payload.split(":")[1]
         send_text(sender_id, "Đã từ chối đặt phòng.")
-        send_text(guest_id, "Rất tiếc phòng của bạn chưa được xác nhận. Vui lòng liên hệ 083 285 0488 để biết thêm chi tiết nhé!")
+        send_text(guest_id, "Rất tiếc phòng chưa được xác nhận. Liên hệ 083 285 0488 để biết thêm nhé!")
         pending_bookings.pop(guest_id, None)
         return
 
@@ -437,12 +371,12 @@ def handle_postback(sender_id: str, postback: dict):
 
     if payload == "PHOTOS_TIEU_CHUAN":
         send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
-        send_photos(sender_id, PHOTOS_TIEU_CHUAN, limit=4)
+        send_photos(sender_id, PHOTOS_TIEU_CHUAN)
         return
 
     if payload == "PHOTOS_CAO_CAP":
         send_text(sender_id, "Ảnh phòng Cao Cấp:")
-        send_photos(sender_id, PHOTOS_CAO_CAP, limit=4)
+        send_photos(sender_id, PHOTOS_CAO_CAP)
         return
 
     if payload == "CHECK_AVAIL_MENU":
@@ -469,12 +403,12 @@ def handle_postback(sender_id: str, postback: dict):
         return
 
     if payload == "AVAIL_CUSTOM":
-        send_text(sender_id, "Ban nhan ngay muon check-in, vi du:\n- 15/6\n- 15/6 - 17/6\n- thu 6\n- cuoi tuan nay")
+        send_text(sender_id, "Bạn nhắn ngày muốn check-in, ví dụ:\n- 15/6\n- 15/6 - 17/6\n- thứ 6\n- cuối tuần này")
         return
 
     responses = {
-        "PRICES":  "Gia phong Trang Non:\n\nPhong Tieu Chuan:\n- Trong tuan: 370k/dem\n- Cuoi tuan: 400k/dem\n\nPhong Cao Cap:\n- Trong tuan: 440k/dem\n- Cuoi tuan: 480k/dem",
-        "CONTACT": "Hotline: 083 285 0488\n17/14B Luong Van Nam, Phan Thiet",
+        "PRICES":  "Giá phòng Trăng Non:\n\nPhòng Tiêu Chuẩn:\n- Trong tuần: 370k/đêm\n- Cuối tuần: 400k/đêm\n\nPhòng Cao Cấp:\n- Trong tuần: 440k/đêm\n- Cuối tuần: 480k/đêm",
+        "CONTACT": "Hotline: 083 285 0488\n17/14B Lương Văn Năm, Phan Thiết",
         "GET_STARTED": "Chào mừng đến với Trăng Non Homestay!",
     }
     reply = responses.get(payload)
@@ -509,11 +443,9 @@ def ask_openai(sender_id: str, user_text: str) -> str:
         print(f"OpenAI reply: {reply_text[:80]}")
 
         # Lọc nếu AI hỏi SĐT
-        SDT_PHRASES = ["số điện thoại", "phone", "sđt", "số đt"]
-        if any(p in reply_text.lower() for p in SDT_PHRASES):
-            full_history = " ".join([m.get("content","") for m in history])
-            has_name = any(kw in full_history.lower() for kw in ["tên", "mình là", "tôi là", "em là"])
-            if has_name:
+        if any(p in reply_text.lower() for p in ["số điện thoại", "phone", "sđt"]):
+            full = " ".join([m.get("content","") for m in history])
+            if any(kw in full.lower() for kw in ["tên", "mình là", "tôi là", "em là"]):
                 return "SEND_PAYMENT_INFO"
 
         history.append({"role": "assistant", "content": reply_text})
@@ -525,134 +457,6 @@ def ask_openai(sender_id: str, user_text: str) -> str:
     except Exception as e:
         print(f"LỖI OPENAI: {e}")
         return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
-
-
-def ask_openai(sender_id: str, user_text: str) -> str:
-    history = conversation_history.setdefault(sender_id, [])
-    history.append({"role": "user", "content": user_text})
-    if len(history) > MAX_HISTORY * 2:
-        history[:] = history[-(MAX_HISTORY * 2):]
-
-    try:
-        print(f"Dang goi Groq API... key: {GROQ_API_KEY[:10]}...")
-        resp = requests.post(
-            GROQ_API_URL,
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": "gemma2-9b-it",
-                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
-                "max_tokens": 300,
-                "temperature": 0.7,
-            },
-            timeout=15,
-        )
-        print(f"Groq response status: {resp.status_code}")
-        resp.raise_for_status()
-        reply_text = resp.json()["choices"][0]["message"]["content"].strip()
-        print(f"Groq reply: {reply_text[:50]}")
-        
-        # Nếu AI hỏi SĐT → bỏ qua, kích hoạt SEND_PAYMENT_INFO luôn
-        SDT_PHRASES = ["số điện thoại", "so dien thoai", "phone", "sđt", "sdt", 
-                       "liên hệ", "lien he", "số đt", "so dt"]
-        if any(p in reply_text.lower() for p in SDT_PHRASES):
-            # Kiểm tra xem trong lịch sử đã có tên chưa
-            full_history = " ".join([m.get("content","") for m in history])
-            has_name = any(kw in full_history.lower() for kw in ["tên", "ten", "mình là", "minh la", "tôi là", "toi la"])
-            if has_name:
-                return "SEND_PAYMENT_INFO"
-        
-        history.append({"role": "assistant", "content": reply_text})
-        return reply_text
-    except requests.exceptions.Timeout:
-        return "Mình đang bận, bạn thử lại sau vài giây nhé!"
-    except Exception as e:
-        print(f"Loi Groq: {e}")
-        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
-
-
-def ask_openai(sender_id: str, user_text: str) -> str:
-    history = conversation_history.setdefault(sender_id, [])
-    history.append({"role": "user", "content": user_text})
-    if len(history) > MAX_HISTORY * 2:
-        history[:] = history[-(MAX_HISTORY * 2):]
-
-    try:
-        print(f"Đang gọi OpenAI...")
-        resp = requests.post(
-            OPENAI_API_URL,
-            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
-                "max_tokens": 400,
-                "temperature": 0.7,
-            },
-            timeout=15,
-        )
-        print(f"OpenAI status: {resp.status_code}")
-        resp.raise_for_status()
-        reply_text = resp.json()["choices"][0]["message"]["content"].strip()
-        print(f"OpenAI reply: {reply_text[:80]}")
-
-        # Lọc nếu AI hỏi SĐT
-        SDT_PHRASES = ["số điện thoại", "phone", "sđt", "số đt"]
-        if any(p in reply_text.lower() for p in SDT_PHRASES):
-            full_history = " ".join([m.get("content","") for m in history])
-            has_name = any(kw in full_history.lower() for kw in ["tên", "mình là", "tôi là", "em là"])
-            if has_name:
-                return "SEND_PAYMENT_INFO"
-
-        history.append({"role": "assistant", "content": reply_text})
-        return reply_text
-
-    except requests.exceptions.Timeout:
-        print("OPENAI TIMEOUT!")
-        return "Mình đang bận, bạn thử lại sau vài giây nhé!"
-    except Exception as e:
-        print(f"LỖI OPENAI: {e}")
-        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
-
-
-def ask_openai(sender_id: str, user_text: str) -> str:
-    history = conversation_history.setdefault(sender_id, [])
-    history.append({"role": "user", "parts": [{"text": user_text}]})
-    if len(history) > MAX_HISTORY * 2:
-        history[:] = history[-(MAX_HISTORY * 2):]
-
-    for attempt in range(3):
-        try:
-            resp = requests.post(
-                                params={"key":                 json={
-                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                    "contents": history,
-                    "generationConfig": {"temperature": 0.7, "maxOutputTokens": 400},
-                },
-                timeout=15,
-            )
-            if resp.status_code == 429:
-                import time; time.sleep(5)
-                continue
-            resp.raise_for_status()
-            reply_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-            # Lọc nếu AI hỏi SĐT
-            SDT_PHRASES = ["số điện thoại", "phone", "sđt", "số đt"]
-            if any(p in reply_text.lower() for p in SDT_PHRASES):
-                full_history = " ".join([p.get("parts",[{}])[0].get("text","") for p in history])
-                has_name = any(kw in full_history.lower() for kw in ["tên", "mình là", "tôi là", "em là"])
-                if has_name:
-                    return "SEND_PAYMENT_INFO"
-
-            history.append({"role": "model", "parts": [{"text": reply_text}]})
-            return reply_text
-
-        except requests.exceptions.Timeout:
-            return "Mình đang bận, bạn thử lại sau vài giây nhé!"
-        except Exception as e:
-            print(f"Lỗi OpenAI (lần {attempt+1}): {e}")
-            import time; time.sleep(3)
-
-    return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
 
 
 def send_text(recipient_id: str, text: str):
@@ -675,10 +479,7 @@ def send_quick_replies(recipient_id: str, text: str, replies: list):
 def send_photos(recipient_id: str, photos: list, limit: int = 4):
     selected = random.sample(photos, min(limit, len(photos)))
     for url in selected:
-        _send({
-            "recipient": {"id": recipient_id},
-            "message": {"attachment": {"type": "image", "payload": {"url": url, "is_reusable": True}}},
-        })
+        _send({"recipient": {"id": recipient_id}, "message": {"attachment": {"type": "image", "payload": {"url": url, "is_reusable": True}}}})
 
 
 def _send(payload: dict):
@@ -689,7 +490,7 @@ def _send(payload: dict):
         timeout=10,
     )
     if not resp.ok:
-        print(f"Loi gui tin: {resp.status_code} - {resp.text}")
+        print(f"Lỗi gửi tin: {resp.status_code} - {resp.text}")
     return resp
 
 
