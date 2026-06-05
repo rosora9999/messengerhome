@@ -20,14 +20,12 @@ VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "YOUR_VERIFY_TOKEN")
 APP_SECRET        = os.environ.get("APP_SECRET", "YOUR_APP_SECRET")
 GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
 OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY")
-GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
 GOHOST_API_KEY    = os.environ.get("GOHOST_API_KEY", "YOUR_GOHOST_API_KEY")
 GOHOST_API_SECRET = os.environ.get("GOHOST_API_SECRET", "YOUR_GOHOST_API_SECRET")
 
 GRAPH_API_URL  = "https://graph.facebook.com/v19.0/me/messages"
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 GOHOST_API_URL = "https://platform.gohost.vn/pms/api/public/v1"
 
 TENANT_ID       = "9d37978e-2409-402d-a286-082d82f91c27"
@@ -569,9 +567,7 @@ def ask_openai(sender_id: str, user_text: str) -> str:
         return "Mình đang bận, bạn thử lại sau vài giây nhé!"
     except Exception as e:
         print(f"Loi Groq: {e}")
-        # Fallback sang Groq nếu Gemini lỗi
-    print("Gemini thất bại, fallback sang Groq...")
-    return ask_openai(sender_id, user_text)
+        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
 
 
 def ask_openai(sender_id: str, user_text: str) -> str:
@@ -626,9 +622,7 @@ def ask_openai(sender_id: str, user_text: str) -> str:
     for attempt in range(3):
         try:
             resp = requests.post(
-                GEMINI_API_URL,
-                params={"key": GEMINI_API_KEY},
-                json={
+                                params={"key":                 json={
                     "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
                     "contents": history,
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 400},
@@ -655,7 +649,7 @@ def ask_openai(sender_id: str, user_text: str) -> str:
         except requests.exceptions.Timeout:
             return "Mình đang bận, bạn thử lại sau vài giây nhé!"
         except Exception as e:
-            print(f"Lỗi Gemini (lần {attempt+1}): {e}")
+            print(f"Lỗi OpenAI (lần {attempt+1}): {e}")
             import time; time.sleep(3)
 
     return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
