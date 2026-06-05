@@ -89,8 +89,9 @@ VÍ DỤ SAI - KHÔNG ĐƯỢC LÀM:
 ❌ "Bạn cần phòng tiêu chuẩn hay cao cấp?"
 
 QUY TẮC ĐẶT PHÒNG:
-- Khi khách nói muốn đặt/book → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
+- Khi khách xác nhận muốn đặt (ok, được, đồng ý, muốn đặt, đặt nha, đặt nhé...) → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
 - TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ gì
+- Khi khách chỉ hỏi thông tin phòng (mấy người, tiện nghi, diện tích...) → trả lời thông tin, KHÔNG gửi ảnh, KHÔNG hỏi đặt phòng
 
 === THÔNG TIN PHÒNG ===
 1. Phòng Tiêu Chuẩn (2 phòng): Trong tuần 370k, cuối tuần 400k/đêm
@@ -359,7 +360,7 @@ def handle_message(sender_id: str, message: dict):
     # Khách hỏi phòng nhưng chưa có ngày
     PHONG_KEYWORDS = ["đặt phòng", "book phòng", "có phòng", "còn phòng", "giá phòng", 
                       "hỏi phòng", "thuê phòng", "xem phòng trống", "phòng trống"]
-    DAT_PHONG_KEYWORDS = ["đặt", "book", "mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt", "phòng đó", "lấy phòng", "ok", "được", "đồng ý", "nhận phòng đó", "phòng tiêu chuẩn", "phòng cao cấp", "tiêu chuẩn", "cao cấp"]
+    DAT_PHONG_KEYWORDS = ["mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt", "lấy phòng", "đồng ý đặt", "nhận phòng đó", "đặt phòng tiêu chuẩn", "đặt phòng cao cấp", "lấy phòng tiêu chuẩn", "lấy phòng cao cấp", "book phòng tiêu chuẩn", "book phòng cao cấp"]
 
     # Nếu khách muốn đặt phòng
     if any(kw in lower for kw in DAT_PHONG_KEYWORDS):
