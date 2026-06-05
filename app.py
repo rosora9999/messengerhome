@@ -68,14 +68,18 @@ QUY TẮC XỬ LÝ:
 - Hotline: 083 285 0488
 
 QUY TẮC KHI KHÁCH HỎI PHÒNG:
-1. Hỏi ngày check-in và check-out
-2. Sau khi có ngày → trả lời: "CHECK_AVAILABILITY_WITH_DATE" để hệ thống kiểm tra và báo phòng còn trống + giá
-3. KHÔNG hỏi khách muốn loại phòng nào — hệ thống tự báo còn phòng nào
+1. Nếu khách chưa có ngày → hỏi ngày check-in và check-out
+2. Nếu khách đã có ngày check-in và check-out → trả lời: "CHECK_AVAILABILITY" để hệ thống tự kiểm tra
+3. KHÔNG hỏi loại phòng — hệ thống tự báo còn phòng nào và giá bao nhiêu
 
 QUY TẮC ĐẶT PHÒNG - RẤT QUAN TRỌNG:
-- Khi khách nói muốn đặt phòng → dựa vào thông tin check-in/out đã có → NGAY LẬP TỨC trả lời: "SEND_PAYMENT_INFO"
-- KHÔNG hỏi thêm tên, số điện thoại, loại phòng, số người hay bất kỳ thông tin nào khác
-- Ví dụ: khách đã nói in 27/6 out 28/6, sau đó nói "đặt phòng" → trả lời "SEND_PAYMENT_INFO" ngay
+- Khi khách nói muốn đặt phòng (dù chưa nói loại phòng) → NGAY LẬP TỨC trả lời: "SEND_PAYMENT_INFO"
+- KHÔNG hỏi thêm bất kỳ thông tin nào — tên, loại phòng, số người, SĐT
+- Ví dụ: "đặt phòng", "book phòng", "mình đặt", "cho mình đặt" → trả lời "SEND_PAYMENT_INFO" ngay
+
+LƯU Ý QUAN TRỌNG:
+- Đọc kỹ toàn bộ lịch sử hội thoại trước khi trả lời
+- Không hỏi lại thông tin khách đã cung cấp trong hội thoại
 
 === THÔNG TIN PHÒNG ===
 1. Phòng Tiêu Chuẩn (2 phòng): Trong tuần 370k, cuối tuần 400k/đêm
@@ -111,8 +115,10 @@ conversation_history: dict = {}
 pending_bookings: dict = {}
 MAX_HISTORY = 10
 
-CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", "kiểm tra phòng"]
-DATE_TRIGGERS  = ["ngày mai", "cuối tuần", "thứ ", "tuần tới"]
+CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", 
+                  "kiểm tra phòng", "đặt phòng", "book phòng", "mình đặt", "cho mình đặt",
+                  "in ", "out ", "check in", "check out", "nhận phòng", "trả phòng"]
+DATE_TRIGGERS  = ["ngày mai", "cuối tuần", "thứ ", "tuần tới", "ngày ", "/6", "/7", "/8", "/9"]
 CK_KEYWORDS    = ["đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán",
                   "cọc xong", "chuyển xong", "ck rồi", "ck xong", "đã ck",
                   "chuyển khoản rồi", "chuyển khoản xong", "đã chuyển khoản",
@@ -306,12 +312,11 @@ def handle_message(sender_id: str, message: dict):
             notify_owner(sender_id, pending_bookings[sender_id])
         return
 
-    # Kiểm tra phòng tự động
-    if any(kw in lower for kw in CHECK_TRIGGERS + DATE_TRIGGERS):
-        checkin, checkout = parse_date_range(lower)
-        if checkin and checkout:
-            send_text(sender_id, check_room_availability(checkin, checkout))
-            return
+    # Kiểm tra phòng tự động khi có ngày
+    checkin, checkout = parse_date_range(lower)
+    if checkin and checkout:
+        send_text(sender_id, check_room_availability(checkin, checkout))
+        return
 
     reply = ask_openai(sender_id, text)
 
