@@ -74,6 +74,7 @@ QUY TẮC XỬ LÝ:
 
 QUY TẮC KHI KHÁCH HỎI PHÒNG - BẮT BUỘC TUÂN THEO:
 - Khi khách hỏi phòng/giá/đặt phòng mà CHƯA có ngày → CHỈ hỏi đúng 1 câu: "Bạn check-in ngày nào, out ngày nào ạ?"
+- Nếu trong lịch sử hội thoại đã có ngày check-in/check-out → TUYỆT ĐỐI KHÔNG hỏi ngày nữa, hệ thống đã xử lý rồi
 - TUYỆT ĐỐI KHÔNG hỏi loại phòng - hệ thống tự kiểm tra và báo
 - TUYỆT ĐỐI KHÔNG hỏi tên, SĐT, số người
 
@@ -438,6 +439,28 @@ def handle_message(sender_id: str, message: dict):
             send_text(sender_id, check_room_availability(checkin, checkout))
             return
 
+    # Nếu khách hỏi giá/thông tin trong khi đã có pending_booking → trả lời từ context, không hỏi ngày
+    if sender_id in pending_bookings:
+        info = pending_bookings[sender_id]
+        ci_dt = datetime.strptime(info["checkin"], "%Y-%m-%d")
+        co_dt = datetime.strptime(info["checkout"], "%Y-%m-%d")
+        so_dem = (co_dt - ci_dt).days
+        loai = info.get("loai_phong", "Tiêu chuẩn")
+        tong = 0
+        for i in range(so_dem):
+            ngay = ci_dt + timedelta(days=i)
+            if ngay.weekday() >= 4:
+                tong += 480000 if "cao" in loai.lower() else 400000
+            else:
+                tong += 440000 if "cao" in loai.lower() else 370000
+        GIA_KEYWORDS = ["giá", "bao nhiêu", "bn", "bao nhieu", "tổng", "tiền", "phí"]
+        if any(kw in lower for kw in GIA_KEYWORDS):
+            ci_str = ci_dt.strftime("%d/%m")
+            co_str = co_dt.strftime("%d/%m")
+            msg = "Phong " + loai + " " + str(so_dem) + " dem (" + ci_str + " - " + co_str + "): " + str(tong//1000) + "k a.\nBan muon dat phong khong?"
+            send_text(sender_id, msg)
+            return
+
     reply = ask_openai(sender_id, text)
 
     if "SEND_THUMB_TIEU_CHUAN" in reply:
@@ -553,6 +576,16 @@ def ask_openai(sender_id: str, user_text: str) -> str:
     if len(history) > MAX_HISTORY * 2:
         history[:] = history[-(MAX_HISTORY * 2):]
 
+    # Inject ngày vào system prompt nếu đã có → AI không hỏi lại ngày
+    session_info = session_checkin.get(sender_id, {})
+    ci = session_info.get("checkin", "")
+    co = session_info.get("checkout", "")
+    system = SYSTEM_PROMPT
+    if ci and co:
+        ci_str = datetime.strptime(ci, "%Y-%m-%d").strftime("%d/%m/%Y")
+        co_str = datetime.strptime(co, "%Y-%m-%d").strftime("%d/%m/%Y")
+        system += f"\n\nLƯU Ý QUAN TRỌNG: Khách đã cung cấp ngày check-in {ci_str} và check-out {co_str}. TUYỆT ĐỐI KHÔNG hỏi ngày nữa."
+
     try:
         print(f"Đang gọi OpenAI...")
         resp = requests.post(
@@ -560,7 +593,7 @@ def ask_openai(sender_id: str, user_text: str) -> str:
             headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
             json={
                 "model": "gpt-4o-mini",
-                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + history,
+                "messages": [{"role": "system", "content": system}] + history,
                 "max_tokens": 400,
                 "temperature": 0.7,
             },
