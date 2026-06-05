@@ -152,6 +152,9 @@ CK_KEYWORDS    = ["đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi"
                   "cọc xong", "chuyển xong", "ck rồi", "ck xong", "đã ck",
                   "chuyển khoản rồi", "chuyển khoản xong", "đã chuyển khoản",
                   "chuyển r", "đã chuyển tiền", "da coc", "coc roi"]
+STK_KEYWORDS   = ["stk", "số tài khoản", "tài khoản", "chuyển khoản", "mã qr", "qr",
+                  "thanh toán", "cọc", "đặt cọc", "muốn đặt", "đặt nha", "đặt nhé",
+                  "ok đặt", "xác nhận", "đồng ý đặt", "đặt phòng đó"]
 
 
 def gohost_headers():
@@ -350,26 +353,32 @@ def handle_message(sender_id: str, message: dict):
     # Khách hỏi phòng nhưng chưa có ngày
     PHONG_KEYWORDS = ["đặt phòng", "book phòng", "có phòng", "còn phòng", "giá phòng", 
                       "hỏi phòng", "thuê phòng", "xem phòng trống", "phòng trống"]
-    DAT_PHONG_KEYWORDS = ["đặt", "book", "mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt", "phòng đó", "lấy phòng", "ok", "được", "đồng ý", "nhận phòng đó"]
-    
+    DAT_PHONG_KEYWORDS = ["đặt", "book", "mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt", "phòng đó", "lấy phòng", "ok", "được", "đồng ý", "nhận phòng đó", "phòng tiêu chuẩn", "phòng cao cấp", "tiêu chuẩn", "cao cấp"]
+
     # Nếu khách muốn đặt phòng
     if any(kw in lower for kw in DAT_PHONG_KEYWORDS):
         info = session_checkin.get(sender_id, {})
         checkin_s = info.get("checkin", "")
         checkout_s = info.get("checkout", "")
+
+        # Xác định loại phòng khách chọn
+        loai_phong = "Tiêu chuẩn"
+        if "cao cấp" in lower or "cao cap" in lower:
+            loai_phong = "Cao cấp"
+
         if checkin_s and checkout_s:
-            # Có ngày → gửi STK
+            # Có ngày → gửi ảnh tiện ích + hỏi xác nhận đặt phòng
             pending_bookings[sender_id] = {
                 "ten": "Khách",
                 "checkin": checkin_s,
                 "checkout": checkout_s,
-                "loai_phong": "Tiêu chuẩn",
+                "loai_phong": loai_phong,
             }
-            send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
-            import time; time.sleep(1)
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
-            import time; time.sleep(1)
-            send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
+            import time
+            photo_thumb = PHOTO_THUMB_CAO_CAP if loai_phong == "Cao cấp" else PHOTO_THUMB_TIEU_CHUAN
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": photo_thumb, "is_reusable": True}}}})
+            time.sleep(1)
+            send_text(sender_id, f"Đây là ảnh phòng {loai_phong} bạn chọn. Bạn muốn đặt phòng này không ạ?")
             return
         else:
             # Chưa có ngày → hỏi ngày (chỉ hỏi 1 lần)
@@ -378,6 +387,16 @@ def handle_message(sender_id: str, message: dict):
                 send_text(sender_id, "Bạn check-in và check-out ngày nào ạ?")
             return
 
+
+    # Khách hỏi STK / mã QR / muốn đặt cọc
+    if any(kw in lower for kw in STK_KEYWORDS) and sender_id in pending_bookings:
+        import time
+        send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
+        time.sleep(1)
+        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
+        time.sleep(1)
+        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
+        return
 
     # Khách báo đã cọc
     if any(kw in lower for kw in CK_KEYWORDS):
