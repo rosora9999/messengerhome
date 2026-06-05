@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 import requests
-from date_parser import parse_date_range
+from date_parser import parse_date_range, parse_single_date
 
 app = Flask(__name__)
 
@@ -113,6 +113,7 @@ Gần biển Đồi Dương (2km), chợ (1.5km), café Mơ Hoang/Bồng Bềnh 
 
 conversation_history: dict = {}
 pending_bookings: dict = {}
+session_checkin: dict = {}  # Lưu ngày check-in tạm khi khách chưa cho check-out
 MAX_HISTORY = 10
 
 CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", 
@@ -315,8 +316,25 @@ def handle_message(sender_id: str, message: dict):
     # Kiểm tra phòng tự động khi có ngày
     checkin, checkout = parse_date_range(lower)
     if checkin and checkout:
+        session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
         send_text(sender_id, check_room_availability(checkin, checkout))
         return
+    elif checkin and not checkout:
+        # Chỉ có 1 ngày - lưu làm checkin, hỏi checkout
+        session_checkin[sender_id] = {"checkin": checkin, "checkout": None}
+        from datetime import datetime
+        ci_str = datetime.strptime(checkin, "%Y-%m-%d").strftime("%d/%m/%Y")
+        send_text(sender_id, f"Check-in {ci_str}, bạn muốn trả phòng ngày nào?")
+        return
+    elif not checkin and sender_id in session_checkin and session_checkin[sender_id].get("checkout") is None:
+        # Khách nhắn ngày checkout sau
+        checkout_dt = parse_single_date(lower)
+        if checkout_dt:
+            checkin = session_checkin[sender_id]["checkin"]
+            checkout = checkout_dt.strftime("%Y-%m-%d")
+            session_checkin[sender_id]["checkout"] = checkout
+            send_text(sender_id, check_room_availability(checkin, checkout))
+            return
 
     reply = ask_openai(sender_id, text)
 
