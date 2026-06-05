@@ -68,18 +68,13 @@ QUY TẮC XỬ LÝ:
 - Hotline: 083 285 0488
 
 QUY TẮC KHI KHÁCH HỎI PHÒNG:
-1. Nếu khách chưa có ngày → hỏi ngày check-in và check-out
-2. Nếu khách đã có ngày check-in và check-out → trả lời: "CHECK_AVAILABILITY" để hệ thống tự kiểm tra
-3. KHÔNG hỏi loại phòng — hệ thống tự báo còn phòng nào và giá bao nhiêu
+- Nếu khách hỏi phòng/giá mà CHƯA có ngày → chỉ hỏi: "Bạn check-in và check-out ngày nào?"
+- KHÔNG hỏi loại phòng, tên, SĐT hay bất kỳ thông tin nào khác
+- Hệ thống sẽ tự kiểm tra và báo kết quả
 
-QUY TẮC ĐẶT PHÒNG - RẤT QUAN TRỌNG:
-- Khi khách nói muốn đặt phòng (dù chưa nói loại phòng) → NGAY LẬP TỨC trả lời: "SEND_PAYMENT_INFO"
-- KHÔNG hỏi thêm bất kỳ thông tin nào — tên, loại phòng, số người, SĐT
-- Ví dụ: "đặt phòng", "book phòng", "mình đặt", "cho mình đặt" → trả lời "SEND_PAYMENT_INFO" ngay
-
-LƯU Ý QUAN TRỌNG:
-- Đọc kỹ toàn bộ lịch sử hội thoại trước khi trả lời
-- Không hỏi lại thông tin khách đã cung cấp trong hội thoại
+QUY TẮC ĐẶT PHÒNG:
+- Khi khách nói muốn đặt phòng → trả lời NGAY: "SEND_PAYMENT_INFO"
+- TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ gì
 
 === THÔNG TIN PHÒNG ===
 1. Phòng Tiêu Chuẩn (2 phòng): Trong tuần 370k, cuối tuần 400k/đêm
@@ -299,6 +294,32 @@ def handle_message(sender_id: str, message: dict):
     if lower in ("/reset", "xóa lịch sử"):
         conversation_history.pop(sender_id, None)
         send_text(sender_id, "Đã xóa lịch sử. Chúng ta bắt đầu lại nhé!")
+        return
+
+    # Khách hỏi phòng nhưng chưa có ngày
+    PHONG_KEYWORDS = ["đặt phòng", "book phòng", "có phòng", "còn phòng", "giá phòng", 
+                      "hỏi phòng", "thuê phòng", "xem phòng trống", "phòng trống"]
+    DAT_PHONG_KEYWORDS = ["đặt", "book", "mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt"]
+    
+    # Nếu khách muốn đặt phòng và đã có ngày trong session
+    if any(kw in lower for kw in DAT_PHONG_KEYWORDS) and sender_id in session_checkin and session_checkin[sender_id].get("checkout"):
+        info = session_checkin.get(sender_id, {})
+        pending_bookings[sender_id] = {
+            "ten": "Khách",
+            "checkin": info.get("checkin", ""),
+            "checkout": info.get("checkout", ""),
+            "loai_phong": "Tiêu chuẩn",
+        }
+        send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
+        import time; time.sleep(1)
+        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
+        import time; time.sleep(1)
+        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
+        return
+
+    # Nếu khách hỏi phòng chưa có ngày
+    if any(kw in lower for kw in PHONG_KEYWORDS) and sender_id not in session_checkin:
+        send_text(sender_id, "Bạn check-in và check-out ngày nào ạ?")
         return
 
     # Khách báo đã cọc
