@@ -96,6 +96,11 @@ QUY TẮC ĐẶT PHÒNG:
 1. Phòng Tiêu Chuẩn (2 phòng): Trong tuần 370k, cuối tuần 400k/đêm
 2. Phòng Cao Cấp (1 phòng): Trong tuần 440k, cuối tuần 480k/đêm
 
+=== SỨC CHỨA & PHỤ THU KHÁCH ===
+- Tất cả các phòng: tiêu chuẩn 2 người lớn + 1 trẻ em dưới 9 tuổi
+- Ở thêm khách trên 9 tuổi: phụ thu 150k/người/đêm
+- Ở thêm trẻ em dưới 9 tuổi: phụ thu 100k/người/đêm
+
 === TIỆN NGHI PHÒNG ===
 Tất cả các phòng đều có:
 - Tivi (wifi)
