@@ -84,7 +84,7 @@ Khách: "mình muốn đặt phòng" → Home: "Bạn check-in ngày nào, out n
 Khách: "giá phòng bao nhiêu?" → Home: "Bạn check-in ngày nào, out ngày nào ạ?"
 
 VÍ DỤ SAI - KHÔNG ĐƯỢC LÀM:
-❌ "Bạn muốn đặt phòng không?" 
+❌ "Bạn muốn đặt phòng không?"
 ❌ "Bạn cho mình biết loại phòng"
 ❌ "Bạn cần phòng tiêu chuẩn hay cao cấp?"
 
@@ -151,7 +151,7 @@ session_checkin: dict = {}  # Lưu ngày check-in tạm khi khách chưa cho che
 asked_date: dict = {}  # Lưu trạng thái đã hỏi ngày rồi
 MAX_HISTORY = 10
 
-CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không", 
+CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không",
                   "kiểm tra phòng", "đặt phòng", "book phòng", "mình đặt", "cho mình đặt",
                   "check in", "check out"]
 DATE_TRIGGERS  = ["ngày mai", "cuối tuần", "thứ ", "tuần tới", "ngày ", "/6", "/7", "/8", "/9"]
@@ -187,19 +187,21 @@ def check_room_availability(checkin: str, checkout: str) -> str:
         resp.raise_for_status()
         bookings = resp.json().get("data", [])
 
-        active = []
+        booked_tc = 0
+        booked_cc = 0
         for b in bookings:
             if b.get("status") in ("cancelled", "no_show"):
                 continue
             b_ci = datetime.strptime(b.get("checkin_date", "2000-01-01"), "%Y-%m-%d")
             b_co = datetime.strptime(b.get("checkout_date", "2000-01-01"), "%Y-%m-%d")
-            if b_ci < co_dt and b_co > ci_dt:
-                active.append(b)
-
-        booked_tc = 0
-        booked_cc = 0
-        for b in active:
-            for r in b.get("booking_rooms", []):
+            if not (b_ci < co_dt and b_co > ci_dt):
+                continue
+            detail_resp = requests.get(
+                f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings/{b['id']}",
+                headers=gohost_headers(), timeout=10
+            )
+            detail = detail_resp.json().get("data", {})
+            for r in detail.get("booking_rooms", []):
                 room_type = r.get("room_type", "").lower()
                 if "tieu chuan" in room_type or "tiêu chuẩn" in room_type:
                     booked_tc += 1
@@ -316,6 +318,7 @@ def verify_webhook():
 @app.route("/webhook", methods=["POST"])
 def receive_message():
     signature = request.headers.get("X-Hub-Signature-256", "")
+    print("WEBHOOK HIT")
     if not verify_signature(request.data, signature):
         return "Unauthorized", 401
     data = request.get_json()
@@ -323,7 +326,7 @@ def receive_message():
         for entry in data.get("entry", []):
             for event in entry.get("messaging", []):
                 sender_id = event["sender"]["id"]
-                print(f"SENDER_ID: {sender_id}")
+                print(f"SENDER_ID: {sender_id} | event keys: {list(event.keys())}")
                 if "message" in event:
                     handle_message(sender_id, event["message"])
                 elif "postback" in event:
@@ -361,7 +364,7 @@ def handle_message(sender_id: str, message: dict):
         return
 
     # Khách hỏi phòng nhưng chưa có ngày
-    PHONG_KEYWORDS = ["đặt phòng", "book phòng", "có phòng", "còn phòng", "giá phòng", 
+    PHONG_KEYWORDS = ["đặt phòng", "book phòng", "có phòng", "còn phòng", "giá phòng",
                       "hỏi phòng", "thuê phòng", "xem phòng trống", "phòng trống"]
     DAT_PHONG_KEYWORDS = ["mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt", "lấy phòng", "đồng ý đặt", "nhận phòng đó", "đặt phòng tiêu chuẩn", "đặt phòng cao cấp", "lấy phòng tiêu chuẩn", "lấy phòng cao cấp", "book phòng tiêu chuẩn", "book phòng cao cấp"]
 
@@ -369,6 +372,17 @@ def handle_message(sender_id: str, message: dict):
     loai_phong = "Tiêu chuẩn"
     if "cao cấp" in lower or "cao cap" in lower:
         loai_phong = "Cao cấp"
+
+    # Parse ngày trong tin nhắn hiện tại TRƯỚC KHI check keywords
+    _ci, _co = parse_date_range(lower)
+    if _ci and _co:
+        session_checkin[sender_id] = {"checkin": _ci, "checkout": _co}
+        asked_date.pop(sender_id, None)
+    elif _ci and not _co:
+        from datetime import timedelta
+        _co_dt = datetime.strptime(_ci, "%Y-%m-%d") + timedelta(days=1)
+        _co = _co_dt.strftime("%Y-%m-%d")
+        session_checkin[sender_id] = {"checkin": _ci, "checkout": _co}
 
     info = session_checkin.get(sender_id, {})
     checkin_s = info.get("checkin", "")
@@ -461,7 +475,7 @@ def handle_message(sender_id: str, message: dict):
             # Chỉ có ngày, chưa chọn phòng → báo giá bình thường
             send_text(sender_id, check_room_availability(checkin, checkout))
         return
-    
+
     # Chỉ có 1 ngày trong tin nhắn tiếp theo (checkout)
     if not checkin and sender_id in session_checkin and session_checkin[sender_id].get("checkout") is None:
         checkout_dt = parse_single_date(lower)
@@ -695,6 +709,7 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     if not signature.startswith("sha256="):
         return False
     expected = hmac.new(APP_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+    print(f"EXPECTED=sha256={expected[:10]} GOT={signature[:20]}")
     return hmac.compare_digest(f"sha256={expected}", signature)
 
 
