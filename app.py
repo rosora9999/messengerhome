@@ -119,6 +119,14 @@ Check-in: 14:00 / Check-out: 12:00
 Nhận phòng sớm hoặc trả phòng trễ: phụ phí 50k/giờ
 - Nếu khách hỏi checkin sớm/muộn, checkout sớm/muộn → trả lời về giờ và phụ phí, KHÔNG hỏi ngày
 
+=== KHI KHÁCH TRẢ PHÒNG ===
+- Khi khách báo trả phòng hoặc hỏi trả phòng như thế nào → trả lời: "Bạn để chìa khóa phòng và chìa khóa xe máy (nếu có thuê xe) trong phòng dùm home nhé, cảm ơn bạn nhiều!"
+
+=== GỬI HÀNH LÝ TRƯỚC CHECK-IN ===
+- Nếu khách hỏi gửi hành lý trước check-in mà CHƯA cọc phòng hoặc đã cọc nhưng HÔM NAY CHƯA PHẢI ngày check-in → trả lời: "Được bạn, bạn đến gửi hành lý trong phòng lễ tân sau 7h sáng nha."
+- Nếu khách đã cọc phòng VÀ hôm nay đúng là ngày check-in của khách → trả lời: "Bạn cứ nhập mã cổng xong gửi hành lý trong phòng lễ tân nha, khi vào trong không đóng cổng vì cổng tự đóng."
+- Mã cổng: hỏi lại chủ nhà nếu khách cần (không có trong hệ thống)
+
 === CHÍNH SÁCH CỌC ===
 - Cọc 50% tổng tiền phòng để giữ phòng (ít hơn vẫn ok)
 - KHÔNG giữ phòng nếu không cọc
@@ -648,7 +656,13 @@ def ask_openai(sender_id: str, user_text: str) -> str:
     if ci and co:
         ci_str = datetime.strptime(ci, "%Y-%m-%d").strftime("%d/%m/%Y")
         co_str = datetime.strptime(co, "%Y-%m-%d").strftime("%d/%m/%Y")
+        today_str = datetime.now().strftime("%d/%m/%Y")
+        is_checkin_day = (today_str == ci_str)
         system += f"\n\nLƯU Ý QUAN TRỌNG: Khách đã cung cấp ngày check-in {ci_str} và check-out {co_str}. TUYỆT ĐỐI KHÔNG hỏi ngày nữa."
+        if is_checkin_day:
+            system += f" Hôm nay {today_str} ĐÚNG LÀ ngày check-in của khách."
+        else:
+            system += f" Hôm nay {today_str} CHƯA PHẢI ngày check-in của khách."
 
     try:
         print(f"Đang gọi OpenAI...")
