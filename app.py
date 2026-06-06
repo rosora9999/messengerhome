@@ -89,12 +89,12 @@ VÍ DỤ SAI - KHÔNG ĐƯỢC LÀM:
 ❌ "Bạn cần phòng tiêu chuẩn hay cao cấp?"
 
 QUY TẮC ĐẶT PHÒNG:
-- Khi khách xác nhận muốn đặt (ok, được, đồng ý, muốn đặt, đặt nha, đặt nhé...) → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
-- TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ gì
+QUY TẮC ĐẶT PHÒNG:
+- Khi khách muốn đặt mà CHƯA chọn loại phòng → hỏi: "Bạn muốn đặt phòng Tiêu Chuẩn hay Cao Cấp ạ?"
+- Khi khách đã chọn loại phòng → hỏi: "Bạn muốn đặt cọc để giữ phòng không? (chuyển khoản tối thiểu 50% tổng tiền)"
+- Khi khách hỏi STK / số tài khoản / mã QR / muốn cọc → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
+- TUYỆT ĐỐI KHÔNG gửi thông tin thanh toán khi khách chưa yêu cầu
 - Khi khách chỉ hỏi thông tin phòng (mấy người, tiện nghi, diện tích...) → trả lời thông tin, KHÔNG gửi ảnh, KHÔNG hỏi đặt phòng
-
-=== THÔNG TIN PHÒNG ===
-1. Phòng Tiêu Chuẩn (2 phòng): Trong tuần 370k, cuối tuần 400k/đêm
 2. Phòng Cao Cấp (1 phòng): Trong tuần 440k, cuối tuần 480k/đêm
 
 === SỨC CHỨA & PHỤ THU KHÁCH ===
@@ -423,19 +423,18 @@ def handle_message(sender_id: str, message: dict):
     checkin_s = info.get("checkin", "")
     checkout_s = info.get("checkout", "")
 
-    # Nếu đã có ngày VÀ khách nhắc đến tên phòng / từ chốt đặt → gửi STK luôn, không hỏi gì thêm
-    CHOT_KEYWORDS = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan",
-                     "mình đặt", "cho mình đặt", "đặt nha", "đặt nhé",
-                     "ok đặt", "lấy phòng", "đồng ý", "ok", "được",
-                     "nhận phòng", "đặt phòng", "book", "chốt"]
-    if checkin_s and checkout_s and any(kw in lower for kw in CHOT_KEYWORDS):
+    # Nếu đã có ngày VÀ khách nhắc tên loại phòng → lưu và hỏi cọc
+    CHON_PHONG_KEYWORDS = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan",
+                           "phòng tiêu chuẩn", "phòng cao cấp", "lấy tiêu chuẩn", "lấy cao cấp",
+                           "đặt tiêu chuẩn", "đặt cao cấp", "book tiêu chuẩn", "book cao cấp"]
+    if checkin_s and checkout_s and any(kw in lower for kw in CHON_PHONG_KEYWORDS):
         pending_bookings[sender_id] = {
-            "ten": "Khach",
+            "ten": "Khách",
             "checkin": checkin_s,
             "checkout": checkout_s,
             "loai_phong": loai_phong,
         }
-        send_text(sender_id, "Da luu phong cho ban roi. Ban muon dat coc de giu phong khong?")
+        send_text(sender_id, f"Bạn chọn phòng {loai_phong} rồi nha. Bạn muốn đặt cọc để giữ phòng không? (chuyển khoản tối thiểu 50% tổng tiền)")
         return
 
     # Chưa có ngày + từ khóa đặt phòng rõ ràng → hỏi ngày (chỉ 1 lần)
@@ -482,11 +481,11 @@ def handle_message(sender_id: str, message: dict):
         session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
 
     if checkin and checkout:
-        # Nếu tin nhắn vừa có ngày vừa có ý định đặt/loại phòng → gửi STK luôn
-        CHOT_INLINE = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan",
-                       "đặt", "book", "lấy phòng", "cho mình", "mình muốn"]
+        import time
+        CHON_PHONG_INLINE = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan"]
         loai_inline = "Cao cấp" if ("cao cấp" in lower or "cao cap" in lower) else "Tiêu chuẩn"
-        if any(kw in lower for kw in CHOT_INLINE):
+        if any(kw in lower for kw in CHON_PHONG_INLINE):
+            # Có ngày + có loại phòng → báo giá + hỏi cọc
             pending_bookings[sender_id] = {
                 "ten": "Khách",
                 "checkin": checkin,
@@ -494,8 +493,10 @@ def handle_message(sender_id: str, message: dict):
                 "loai_phong": loai_inline,
             }
             send_availability(sender_id, checkin, checkout)
+            time.sleep(1)
+            send_text(sender_id, f"Bạn muốn đặt cọc phòng {loai_inline} để giữ phòng không?")
         else:
-            # Chỉ có ngày, chưa chọn phòng → báo giá bình thường
+            # Chỉ có ngày, chưa chọn phòng → báo giá + gửi ảnh (send_availability đã làm)
             send_availability(sender_id, checkin, checkout)
         return
 
