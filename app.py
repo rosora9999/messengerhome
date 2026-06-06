@@ -89,8 +89,9 @@ VÍ DỤ SAI - KHÔNG ĐƯỢC LÀM:
 ❌ "Bạn cần phòng tiêu chuẩn hay cao cấp?"
 
 QUY TẮC ĐẶT PHÒNG:
-- Khi khách xác nhận muốn đặt (ok, được, đồng ý, muốn đặt, đặt nha, đặt nhé...) → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
-- TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ gì
+- Khi khách xác nhận muốn đặt (ok, được, đồng ý, muốn đặt, đặt nha, đặt nhé...) → hỏi: "Bạn muốn đặt cọc để giữ phòng không? (chuyển khoản tối thiểu 50% tổng tiền)"
+- Khi khách hỏi STK / số tài khoản / mã QR / muốn cọc → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
+- TUYỆT ĐỐI KHÔNG gửi thông tin thanh toán khi khách chưa yêu cầu
 - Khi khách chỉ hỏi thông tin phòng (mấy người, tiện nghi, diện tích...) → trả lời thông tin, KHÔNG gửi ảnh, KHÔNG hỏi đặt phòng
 
 === THÔNG TIN PHÒNG ===
@@ -394,18 +395,13 @@ def handle_message(sender_id: str, message: dict):
                      "ok đặt", "lấy phòng", "đồng ý", "ok", "được",
                      "nhận phòng", "đặt phòng", "book", "chốt"]
     if checkin_s and checkout_s and any(kw in lower for kw in CHOT_KEYWORDS):
-        import time
         pending_bookings[sender_id] = {
-            "ten": "Khách",
+            "ten": "Khach",
             "checkin": checkin_s,
             "checkout": checkout_s,
             "loai_phong": loai_phong,
         }
-        send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
-        time.sleep(1)
-        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
-        time.sleep(1)
-        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
+        send_text(sender_id, "Da luu phong cho ban roi nha. Ban muon dat coc de giu phong khong? (Chuyen khoan toi thieu 50% tong tien)")
         return
 
     # Chưa có ngày + từ khóa đặt phòng rõ ràng → hỏi ngày (chỉ 1 lần)
@@ -457,22 +453,14 @@ def handle_message(sender_id: str, message: dict):
                        "đặt", "book", "lấy phòng", "cho mình", "mình muốn"]
         loai_inline = "Cao cấp" if ("cao cấp" in lower or "cao cap" in lower) else "Tiêu chuẩn"
         if any(kw in lower for kw in CHOT_INLINE):
-            import time
             pending_bookings[sender_id] = {
-                "ten": "Khách",
+                "ten": "Khach",
                 "checkin": checkin,
                 "checkout": checkout,
                 "loai_phong": loai_inline,
             }
             send_text(sender_id, check_room_availability(checkin, checkout))
-            time.sleep(1)
-            send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
-            time.sleep(1)
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
-            time.sleep(1)
-            send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
         else:
-            # Chỉ có ngày, chưa chọn phòng → báo giá bình thường
             send_text(sender_id, check_room_availability(checkin, checkout))
         return
 
