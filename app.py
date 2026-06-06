@@ -177,16 +177,27 @@ def check_room_availability(checkin: str, checkout: str) -> str:
     try:
         ci_dt = datetime.strptime(checkin, "%Y-%m-%d")
         co_dt = datetime.strptime(checkout, "%Y-%m-%d")
-        start = (ci_dt - timedelta(days=1)).strftime("%Y-%m-%d")
-
-        resp = requests.get(
-            f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
-            headers=gohost_headers(),
-            params={"start_date": start, "end_date": checkout, "per_page": 50},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        bookings = resp.json().get("data", [])
+        # GoHost giới hạn 14 ngày/query → chia thành nhiều query 13 ngày
+        all_bookings = {}
+        query_start = ci_dt - timedelta(days=13)
+        query_end = ci_dt
+        # Query ngược về quá khứ để bắt booking dài ngày đang overlap
+        while query_start <= co_dt:
+            qe = min(query_end, co_dt)
+            resp = requests.get(
+                f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
+                headers=gohost_headers(),
+                params={"start_date": query_start.strftime("%Y-%m-%d"),
+                        "end_date": qe.strftime("%Y-%m-%d"),
+                        "per_page": 50},
+                timeout=10,
+            )
+            if resp.ok:
+                for b in resp.json().get("data", []):
+                    all_bookings[b["id"]] = b
+            query_start = query_end + timedelta(days=1)
+            query_end = query_start + timedelta(days=12)
+        bookings = list(all_bookings.values())
 
         booked_tc = 0
         booked_cc = 0
