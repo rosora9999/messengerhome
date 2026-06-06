@@ -89,9 +89,8 @@ VÍ DỤ SAI - KHÔNG ĐƯỢC LÀM:
 ❌ "Bạn cần phòng tiêu chuẩn hay cao cấp?"
 
 QUY TẮC ĐẶT PHÒNG:
-- Khi khách xác nhận muốn đặt (ok, được, đồng ý, muốn đặt, đặt nha, đặt nhé...) → hỏi: "Bạn muốn đặt cọc để giữ phòng không? (chuyển khoản tối thiểu 50% tổng tiền)"
-- Khi khách hỏi STK / số tài khoản / mã QR / muốn cọc → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
-- TUYỆT ĐỐI KHÔNG gửi thông tin thanh toán khi khách chưa yêu cầu
+- Khi khách xác nhận muốn đặt (ok, được, đồng ý, muốn đặt, đặt nha, đặt nhé...) → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
+- TUYỆT ĐỐI KHÔNG hỏi thêm bất cứ gì
 - Khi khách chỉ hỏi thông tin phòng (mấy người, tiện nghi, diện tích...) → trả lời thông tin, KHÔNG gửi ảnh, KHÔNG hỏi đặt phòng
 
 === THÔNG TIN PHÒNG ===
@@ -177,26 +176,25 @@ def check_room_availability(checkin: str, checkout: str) -> str:
     try:
         ci_dt = datetime.strptime(checkin, "%Y-%m-%d")
         co_dt = datetime.strptime(checkout, "%Y-%m-%d")
-        # GoHost giới hạn 14 ngày/query → chia thành nhiều query 13 ngày
+
+        # GoHost gioi han 14 ngay/query → query nhieu lan 13 ngay de bat booking dai ngay
         all_bookings = {}
-        query_start = ci_dt - timedelta(days=13)
-        query_end = ci_dt
-        # Query ngược về quá khứ để bắt booking dài ngày đang overlap
-        while query_start <= co_dt:
-            qe = min(query_end, co_dt)
+        q_start = ci_dt - timedelta(days=13)
+        q_end = ci_dt
+        while q_start <= co_dt:
+            q_end_capped = min(q_start + timedelta(days=13), co_dt)
             resp = requests.get(
                 f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
                 headers=gohost_headers(),
-                params={"start_date": query_start.strftime("%Y-%m-%d"),
-                        "end_date": qe.strftime("%Y-%m-%d"),
+                params={"start_date": q_start.strftime("%Y-%m-%d"),
+                        "end_date": q_end_capped.strftime("%Y-%m-%d"),
                         "per_page": 50},
                 timeout=10,
             )
             if resp.ok:
                 for b in resp.json().get("data", []):
                     all_bookings[b["id"]] = b
-            query_start = query_end + timedelta(days=1)
-            query_end = query_start + timedelta(days=12)
+            q_start = q_end_capped + timedelta(days=1)
         bookings = list(all_bookings.values())
 
         booked_tc = 0
@@ -215,9 +213,9 @@ def check_room_availability(checkin: str, checkout: str) -> str:
             detail = detail_resp.json().get("data", {})
             for r in detail.get("booking_rooms", []):
                 room_type = r.get("room_type", "").lower()
-                if "tieu chuan" in room_type or "tiêu chuẩn" in room_type:
+                if "tieu chuan" in room_type or "tieu chuan" in room_type.replace("ẩ", "a").replace("ê", "e"):
                     booked_tc += 1
-                elif "cao cap" in room_type or "cao cấp" in room_type:
+                elif "cao cap" in room_type or "cao c" in room_type:
                     booked_cc += 1
 
         con_tc = max(0, 2 - booked_tc)
@@ -412,7 +410,7 @@ def handle_message(sender_id: str, message: dict):
             "checkout": checkout_s,
             "loai_phong": loai_phong,
         }
-        send_text(sender_id, "Da luu phong cho ban roi nha. Ban muon dat coc de giu phong khong? (Chuyen khoan toi thieu 50% tong tien)")
+        send_text(sender_id, "Da luu phong cho ban roi. Ban muon dat coc de giu phong khong?")
         return
 
     # Chưa có ngày + từ khóa đặt phòng rõ ràng → hỏi ngày (chỉ 1 lần)
@@ -465,13 +463,14 @@ def handle_message(sender_id: str, message: dict):
         loai_inline = "Cao cấp" if ("cao cấp" in lower or "cao cap" in lower) else "Tiêu chuẩn"
         if any(kw in lower for kw in CHOT_INLINE):
             pending_bookings[sender_id] = {
-                "ten": "Khach",
+                "ten": "Khách",
                 "checkin": checkin,
                 "checkout": checkout,
                 "loai_phong": loai_inline,
             }
             send_text(sender_id, check_room_availability(checkin, checkout))
         else:
+            # Chỉ có ngày, chưa chọn phòng → báo giá bình thường
             send_text(sender_id, check_room_availability(checkin, checkout))
         return
 
@@ -522,13 +521,13 @@ def handle_message(sender_id: str, message: dict):
         send_text(sender_id, "Ảnh phòng Cao Cấp:")
         send_photos(sender_id, PHOTOS_CAO_CAP)
     elif "SEND_PAYMENT_INFO" in reply:
-        info = extract_booking_info(conversation_history.get(sender_id, []))
-        pending_bookings[sender_id] = info
+        # Chỉ gửi STK khi khách chủ động hỏi STK/cọc
+        import time
         send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
-        import time; time.sleep(1)
+        time.sleep(1)
         _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
-        import time; time.sleep(1)
-        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
+        time.sleep(1)
+        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhan 'da coc' de thong bao cho home nhe!")
     elif "CHECK_AVAILABILITY" in reply:
         send_quick_replies(sender_id, "Bạn muốn kiểm tra phòng thời gian nào?", [
             {"title": "Cuối tuần này", "payload": "AVAIL_THIS_WEEKEND"},
