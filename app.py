@@ -425,19 +425,37 @@ def handle_message(sender_id: str, message: dict):
     # Parse ngày TRƯỚC TIÊN - ưu tiên cao nhất
     checkin, checkout = parse_date_range(lower)
     if checkin and checkout:
-        # Có đủ 2 ngày → kiểm tra phòng luôn
         session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
         asked_date.pop(sender_id, None)
-        send_text(sender_id, check_room_availability(checkin, checkout))
-        return
     elif checkin and not checkout:
-        # Chỉ có 1 ngày → tự tính checkout = checkin + 1
         from datetime import datetime, timedelta
         co_dt = datetime.strptime(checkin, "%Y-%m-%d") + timedelta(days=1)
         checkout = co_dt.strftime("%Y-%m-%d")
         session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
-        asked_date.pop(sender_id, None)
-        send_text(sender_id, check_room_availability(checkin, checkout))
+
+    if checkin and checkout:
+        # Nếu tin nhắn vừa có ngày vừa có ý định đặt/loại phòng → gửi STK luôn
+        CHOT_INLINE = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan",
+                       "đặt", "book", "lấy phòng", "cho mình", "mình muốn"]
+        loai_inline = "Cao cấp" if ("cao cấp" in lower or "cao cap" in lower) else "Tiêu chuẩn"
+        if any(kw in lower for kw in CHOT_INLINE):
+            import time
+            pending_bookings[sender_id] = {
+                "ten": "Khách",
+                "checkin": checkin,
+                "checkout": checkout,
+                "loai_phong": loai_inline,
+            }
+            send_text(sender_id, check_room_availability(checkin, checkout))
+            time.sleep(1)
+            send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
+            time.sleep(1)
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
+            time.sleep(1)
+            send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
+        else:
+            # Chỉ có ngày, chưa chọn phòng → báo giá bình thường
+            send_text(sender_id, check_room_availability(checkin, checkout))
         return
     
     # Chỉ có 1 ngày trong tin nhắn tiếp theo (checkout)
