@@ -1,748 +1,100 @@
-import os
-import hmac
-import hashlib
-import random
 import re
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify
-import requests
-from date_parser import parse_date_range, parse_single_date
 
-app = Flask(__name__)
-
-@app.after_request
-def add_ngrok_header(response):
-    response.headers["ngrok-skip-browser-warning"] = "true"
-    return response
-
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "")
-VERIFY_TOKEN      = os.environ.get("VERIFY_TOKEN", "")
-APP_SECRET        = os.environ.get("APP_SECRET", "")
-OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
-GOHOST_API_KEY    = os.environ.get("GOHOST_API_KEY", "")
-GOHOST_API_SECRET = os.environ.get("GOHOST_API_SECRET", "")
-
-GRAPH_API_URL  = "https://graph.facebook.com/v19.0/me/messages"
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-GOHOST_API_URL = "https://platform.gohost.vn/pms/api/public/v1"
-
-TENANT_ID       = "9d37978e-2409-402d-a286-082d82f91c27"
-ROOM_TIEU_CHUAN = "6c621484-9b51-46de-8448-917bb677e14d"
-ROOM_CAO_CAP    = "c7613c8a-5f93-4d71-8ae0-1ee24a2e6585"
-OWNER_ID        = "9639287556127249"
-
-PHOTO_PAYMENT = "https://res.cloudinary.com/dlmttxts9/image/upload/v1780482041/stk_Thien_bidv_ebjjd5.jpg"
-PHOTO_LUU_Y   = "https://res.cloudinary.com/dlmttxts9/image/upload/v1780482638/luu_y_kulrzc.jpg"
-
-PHOTO_THUMB_TIEU_CHUAN = "https://res.cloudinary.com/dlmttxts9/image/upload/v1780701209/1-phong_don_knqzai.jpg"
-PHOTO_THUMB_CAO_CAP    = "https://res.cloudinary.com/dlmttxts9/image/upload/v1780701209/2-phong_don_deluxe_n8m2xz.jpg"
-
-PHOTOS_TIEU_CHUAN = [
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780480966/1_8_cw4v9l.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780480966/1_1_o2qntc.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780480955/1_3_parrlk.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780480954/1_6_o8dujo.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780480953/1_5_u149j2.jpg",
-]
-PHOTOS_CAO_CAP = [
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780481177/IMG_9994_b9cxiv.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780481177/IMG_0220_pb3njf.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780481175/IMG_9986_sh2i9u.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780481158/IMG_9969_w5yy5n.jpg",
-    "https://res.cloudinary.com/dlmttxts9/image/upload/v1780481157/IMG_0145_gouf2q.jpg",
-]
-
-SYSTEM_PROMPT = """Bạn là trợ lý AI của Homestay Trăng Non tại Phan Thiết.
-Nhiệm vụ: tư vấn và hỗ trợ khách hàng qua Facebook Messenger.
-
-PHONG CÁCH GIAO TIẾP:
-- Tự xưng là "home", gọi khách là "bạn"
-- Nhắn tin ngắn gọn, tự nhiên như nhắn Zalo
-- Mỗi ý một dòng ngắn, thân thiện, đôi khi dùng "ạ", "nha", "nhé", "à"
-- KHÔNG dùng emoji
-- Luôn viết tiếng Việt có đầy đủ dấu
-
-QUY TẮC XỬ LÝ:
-- Nếu bạn hỏi thông tin, tiện ích, mô tả phòng tiêu chuẩn → trả lời đúng: "SEND_THUMB_TIEU_CHUAN"
-- Nếu bạn hỏi thông tin, tiện ích, mô tả phòng cao cấp → trả lời đúng: "SEND_THUMB_CAO_CAP"
-- Nếu bạn hỏi xem ảnh chi tiết/nhiều ảnh phòng tiêu chuẩn → trả lời đúng: "SEND_PHOTOS_TIEU_CHUAN"
-- Nếu bạn hỏi xem ảnh chi tiết/nhiều ảnh phòng cao cấp → trả lời đúng: "SEND_PHOTOS_CAO_CAP"
-- Nếu bạn hỏi xem ảnh phòng không rõ loại → hỏi lại loại phòng
-- Nếu bạn hỏi còn phòng không (không có ngày) → trả lời: "CHECK_AVAILABILITY"
-- Khi tính giá: thứ 2-5 là trong tuần, thứ 6-7-CN và lễ tết là cuối tuần
-- Hotline: 083 285 0488
-
-QUY TẮC KHI KHÁCH HỎI PHÒNG - BẮT BUỘC TUÂN THEO:
-- Khi khách hỏi phòng/giá/đặt phòng mà CHƯA có ngày → CHỈ hỏi đúng 1 câu: "Bạn check-in ngày nào, out ngày nào ạ?"
-- Nếu trong lịch sử hội thoại đã có ngày check-in/check-out → TUYỆT ĐỐI KHÔNG hỏi ngày nữa, hệ thống đã xử lý rồi
-- TUYỆT ĐỐI KHÔNG hỏi loại phòng - hệ thống tự kiểm tra và báo
-- TUYỆT ĐỐI KHÔNG hỏi tên, SĐT, số người
-
-VÍ DỤ ĐÚNG:
-Khách: "còn phòng không?" → Home: "Bạn check-in ngày nào, out ngày nào ạ?"
-Khách: "mình muốn đặt phòng" → Home: "Bạn check-in ngày nào, out ngày nào ạ?"
-Khách: "giá phòng bao nhiêu?" → Home: "Bạn check-in ngày nào, out ngày nào ạ?"
-
-VÍ DỤ SAI - KHÔNG ĐƯỢC LÀM:
-❌ "Bạn muốn đặt phòng không?"
-❌ "Bạn cho mình biết loại phòng"
-❌ "Bạn cần phòng tiêu chuẩn hay cao cấp?"
-
-QUY TẮC ĐẶT PHÒNG:
-QUY TẮC ĐẶT PHÒNG:
-- Khi khách muốn đặt mà CHƯA chọn loại phòng → hỏi: "Bạn muốn đặt phòng Tiêu Chuẩn hay Cao Cấp ạ?"
-- Khi khách đã chọn loại phòng → hỏi: "Bạn muốn đặt cọc để giữ phòng không? (chuyển khoản tối thiểu 50% tổng tiền)"
-- Khi khách hỏi STK / số tài khoản / mã QR / muốn cọc → trả lời NGAY 1 từ: "SEND_PAYMENT_INFO"
-- TUYỆT ĐỐI KHÔNG gửi thông tin thanh toán khi khách chưa yêu cầu
-- Khi khách chỉ hỏi thông tin phòng (mấy người, tiện nghi, diện tích...) → trả lời thông tin, KHÔNG gửi ảnh, KHÔNG hỏi đặt phòng
-2. Phòng Cao Cấp (1 phòng): Trong tuần 440k, cuối tuần 480k/đêm
-
-=== SỨC CHỨA & PHỤ THU KHÁCH ===
-- Tất cả các phòng: tiêu chuẩn 2 người lớn + 1 trẻ em dưới 9 tuổi
-- Ở thêm khách trên 9 tuổi: phụ thu 150k/người/đêm
-- Ở thêm trẻ em dưới 9 tuổi: phụ thu 100k/người/đêm
-
-=== TIỆN NGHI PHÒNG ===
-Tất cả các phòng đều có:
-- Tivi (wifi)
-- Máy lạnh
-- Tủ lạnh
-- Phòng tắm riêng
-- Nước nóng lạnh
-- Máy sấy tóc, Bàn ủi
-- Nước lọc
-- Sân vườn
-- Bếp ngoài trời
-
-=== GIỜ CHECK-IN / CHECK-OUT ===
-Check-in: 14:00 / Check-out: 12:00
-Nhận phòng sớm hoặc trả phòng trễ: phụ phí 50k/giờ
-- Nếu khách hỏi checkin sớm/muộn, checkout sớm/muộn → trả lời về giờ và phụ phí, KHÔNG hỏi ngày
-
-=== KHI KHÁCH TRẢ PHÒNG ===
-- Khi khách báo trả phòng hoặc hỏi trả phòng như thế nào → trả lời: "Bạn để chìa khóa phòng và chìa khóa xe máy (nếu có thuê xe) trong phòng dùm home nhé, cảm ơn bạn nhiều!"
-
-=== GỬI HÀNH LÝ TRƯỚC CHECK-IN ===
-- Nếu khách hỏi gửi hành lý trước check-in mà CHƯA cọc phòng hoặc đã cọc nhưng HÔM NAY CHƯA PHẢI ngày check-in → trả lời: "Được bạn, bạn đến gửi hành lý trong phòng lễ tân sau 7h sáng nha."
-- Nếu khách đã cọc phòng VÀ hôm nay đúng là ngày check-in của khách → trả lời: "Bạn cứ nhập mã cổng xong gửi hành lý trong phòng lễ tân nha, khi vào trong không đóng cổng vì cổng tự đóng."
-- Mã cổng: hỏi lại chủ nhà nếu khách cần (không có trong hệ thống)
-
-=== CHÍNH SÁCH CỌC ===
-- Cọc 50% tổng tiền phòng để giữ phòng (ít hơn vẫn ok)
-- KHÔNG giữ phòng nếu không cọc
-
-=== CHÍNH SÁCH HỦY / ĐỔI NGÀY ===
-- Hủy trước 7 ngày: hoàn 100% cọc
-- Hủy trong vòng 7 ngày: thu 50% cọc
-- Hủy trong vòng 1 ngày: thu 100% cọc
-
-=== XE THUÊ ===
-Xe ga 150k/ngày (24h) — Honda Vision hoặc Airblade
-
-=== ĐỖ XE HƠI ===
-Không có bãi xe. Đậu đường Lê Duẩn, đi bộ vào 50m, tự bảo quản.
-
-=== CHÍNH SÁCH THÚ CƯNG ===
-Dưới 4kg, phụ thu 50k/con/đêm. Khách tự dọn chất thải.
-
-=== VỊ TRÍ ===
-Địa chỉ: 17/14B Lương Văn Năm, P. Phan Thiết, Lâm Đồng
-SĐT đặt phòng: 0832 850 488
-Google Maps: https://maps.app.goo.gl/okvWqpmiG2kDNbQn6
-Gần biển Đồi Dương (2km), chợ (1.5km), café Mơ Hoang/Bồng Bềnh (2km), Mũi Né (12km)
-- Nếu khách hỏi gần điểm vui chơi/địa điểm nào không → gửi địa chỉ và link Google Maps luôn
-"""
-
-conversation_history: dict = {}
-pending_bookings: dict = {}
-session_checkin: dict = {}  # Lưu ngày check-in tạm khi khách chưa cho check-out
-asked_date: dict = {}  # Lưu trạng thái đã hỏi ngày rồi
-MAX_HISTORY = 10
-
-CHECK_TRIGGERS = ["còn phòng", "con phong", "có phòng", "co phong", "trống không",
-                  "kiểm tra phòng", "đặt phòng", "book phòng", "mình đặt", "cho mình đặt",
-                  "check in", "check out"]
-DATE_TRIGGERS  = ["ngày mai", "cuối tuần", "thứ ", "tuần tới", "ngày ", "/6", "/7", "/8", "/9"]
-CK_KEYWORDS    = ["đã cọc", "cọc rồi", "đã chuyển", "chuyển rồi", "đã thanh toán",
-                  "cọc xong", "chuyển xong", "ck rồi", "ck xong", "đã ck",
-                  "chuyển khoản rồi", "chuyển khoản xong", "đã chuyển khoản",
-                  "chuyển r", "đã chuyển tiền", "da coc", "coc roi"]
-STK_KEYWORDS   = ["stk", "số tài khoản", "tài khoản", "chuyển khoản", "mã qr", "qr",
-                  "thanh toán", "cọc", "đặt cọc", "muốn đặt", "đặt nha", "đặt nhé",
-                  "ok đặt", "xác nhận", "đồng ý đặt", "đặt phòng đó"]
-
-
-def gohost_headers():
-    return {
-        "Authorization": f"Bearer {GOHOST_API_KEY}:{GOHOST_API_SECRET}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-
-
-def check_room_availability(checkin: str, checkout: str) -> str:
-    try:
-        ci_dt = datetime.strptime(checkin, "%Y-%m-%d")
-        co_dt = datetime.strptime(checkout, "%Y-%m-%d")
-
-        # GoHost gioi han 14 ngay/query → query nhieu lan 13 ngay de bat booking dai ngay
-        all_bookings = {}
-        q_start = ci_dt - timedelta(days=13)
-        q_end = ci_dt
-        while q_start <= co_dt:
-            q_end_capped = min(q_start + timedelta(days=13), co_dt)
-            resp = requests.get(
-                f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
-                headers=gohost_headers(),
-                params={"start_date": q_start.strftime("%Y-%m-%d"),
-                        "end_date": q_end_capped.strftime("%Y-%m-%d"),
-                        "per_page": 50},
-                timeout=10,
-            )
-            if resp.ok:
-                for b in resp.json().get("data", []):
-                    all_bookings[b["id"]] = b
-            q_start = q_end_capped + timedelta(days=1)
-        bookings = list(all_bookings.values())
-
-        booked_tc = 0
-        booked_cc = 0
-        for b in bookings:
-            if b.get("status") in ("cancelled", "no_show"):
-                continue
-            b_ci = datetime.strptime(b.get("checkin_date", "2000-01-01"), "%Y-%m-%d")
-            b_co = datetime.strptime(b.get("checkout_date", "2000-01-01"), "%Y-%m-%d")
-            if not (b_ci < co_dt and b_co > ci_dt):
-                continue
-            detail_resp = requests.get(
-                f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings/{b['id']}",
-                headers=gohost_headers(), timeout=10
-            )
-            detail = detail_resp.json().get("data", {})
-            for r in detail.get("booking_rooms", []):
-                room_type = r.get("room_type", "").lower()
-                if "tieu chuan" in room_type or "tieu chuan" in room_type.replace("ẩ", "a").replace("ê", "e"):
-                    booked_tc += 1
-                elif "cao cap" in room_type or "cao c" in room_type:
-                    booked_cc += 1
-
-        con_tc = max(0, 2 - booked_tc)
-        con_cc = max(0, 1 - booked_cc)
-
-        # Tính tiền
-        so_dem = (co_dt - ci_dt).days
-        tong_tc = 0
-        tong_cc = 0
-        for i in range(so_dem):
-            ngay = ci_dt + timedelta(days=i)
-            if ngay.weekday() >= 4:
-                tong_tc += 400000
-                tong_cc += 480000
-            else:
-                tong_tc += 370000
-                tong_cc += 440000
-
-        ci = ci_dt.strftime("%d/%m/%Y")
-        co = co_dt.strftime("%d/%m/%Y")
-
-        if con_tc == 0 and con_cc == 0:
-            return f"Ngày đó hết phòng rồi ạ. Bạn thử ngày khác hoặc liên hệ 083 285 0488 nhé!"
-
-        result = f"Phòng trống {ci} - {co} ({so_dem} đêm):\n\n"
-        if con_tc > 0:
-            result += f"Phòng Tiêu Chuẩn: còn {con_tc} phòng\n"
-            result += f"Giá: {tong_tc//1000}k ({so_dem} đêm, 2 người lớn)\n\n"
-        if con_cc > 0:
-            result += f"Phòng Cao Cấp: còn phòng\n"
-            result += f"Giá: {tong_cc//1000}k ({so_dem} đêm, 2 người lớn)\n\n"
-        result += "Bạn muốn đặt phòng không?"
-        return result
-    except Exception as e:
-        print(f"Lỗi GoHost: {e}")
-        return "Hiện không kiểm tra được lịch phòng. Liên hệ 083 285 0488 nhé!"
-
-
-def send_availability(sender_id: str, checkin: str, checkout: str):
-    import time
-    result = check_room_availability(checkin, checkout)
-    send_text(sender_id, result)
-    # Nếu còn phòng thì gửi ảnh thumbnail
-    if "hết phòng" not in result and "không kiểm tra" not in result:
-        time.sleep(1)
-        if "Tiêu Chuẩn" in result and "Cao Cấp" in result:
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_TIEU_CHUAN, "is_reusable": True}}}})
-            time.sleep(1)
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_CAO_CAP, "is_reusable": True}}}})
-        elif "Tiêu Chuẩn" in result:
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_TIEU_CHUAN, "is_reusable": True}}}})
-        elif "Cao Cấp" in result:
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_CAO_CAP, "is_reusable": True}}}})
-
-
-def create_gohost_booking(info: dict) -> bool:
-    try:
-        room_type_id = ROOM_CAO_CAP if "cao" in info.get("loai_phong", "").lower() else ROOM_TIEU_CHUAN
-        resp = requests.post(
-            f"{GOHOST_API_URL}/properties/{TENANT_ID}/bookings",
-            headers=gohost_headers(),
-            json={
-                "room_type_id": room_type_id,
-                "checkin_date": info["checkin"],
-                "checkout_date": info["checkout"],
-                "guest_name": info["ten"],
-                "guest_phone": info.get("sdt", ""),
-                "num_adults": 1,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"Lỗi tạo đơn GoHost: {e}")
-        return False
-
-
-def notify_owner(sender_id: str, info: dict):
-    ci = datetime.strptime(info.get("checkin","2000-01-01"), "%Y-%m-%d").strftime("%d/%m/%Y") if info.get("checkin") else "?"
-    co = datetime.strptime(info.get("checkout","2000-01-01"), "%Y-%m-%d").strftime("%d/%m/%Y") if info.get("checkout") else "?"
-    msg = (
-        f"ĐƠN ĐẶT PHÒNG MỚI!\n\n"
-        f"Tên: {info.get('ten','?')}\n"
-        f"Check-in: {ci}\n"
-        f"Check-out: {co}\n"
-        f"Loại phòng: {info.get('loai_phong','?')}\n\n"
-        f"Khách đã báo đã cọc. Bạn kiểm tra và xác nhận nhé!"
-    )
-    _send({
-        "recipient": {"id": OWNER_ID},
-        "message": {
-            "text": msg,
-            "quick_replies": [
-                {"content_type": "text", "title": "XÁC NHẬN ĐẶT PHÒNG", "payload": f"CONFIRM_BOOKING:{sender_id}"},
-                {"content_type": "text", "title": "TỪ CHỐI", "payload": f"REJECT_BOOKING:{sender_id}"},
-            ],
-        },
-    })
-
-
-def extract_booking_info(history: list) -> dict:
-    full_text = " ".join([m.get("content", "") for m in history])
-    info = {"ten": "Khách", "sdt": "", "checkin": "", "checkout": "", "loai_phong": "Tiêu chuẩn"}
-    sdt = re.search(r"(0\d{9})", full_text)
-    if sdt:
-        info["sdt"] = sdt.group(1)
-    if "cao cấp" in full_text.lower() or "cao cap" in full_text.lower():
-        info["loai_phong"] = "Cao cấp"
-    checkin, checkout = parse_date_range(full_text)
-    if checkin:
-        info["checkin"] = checkin
-        info["checkout"] = checkout or (datetime.strptime(checkin, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-    return info
-
-
-@app.route("/webhook", methods=["GET"])
-def verify_webhook():
-    mode      = request.args.get("hub.mode")
-    token     = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        return challenge, 200
-    return "Forbidden", 403
-
-
-@app.route("/webhook", methods=["POST"])
-def receive_message():
-    signature = request.headers.get("X-Hub-Signature-256", "")
-    print("WEBHOOK HIT")
-    if not verify_signature(request.data, signature):
-        return "Unauthorized", 401
-    data = request.get_json()
-    if data.get("object") == "page":
-        for entry in data.get("entry", []):
-            for event in entry.get("messaging", []):
-                sender_id = event["sender"]["id"]
-                print(f"SENDER_ID: {sender_id} | event keys: {list(event.keys())}")
-                if "message" in event:
-                    handle_message(sender_id, event["message"])
-                elif "postback" in event:
-                    handle_postback(sender_id, event["postback"])
-    return jsonify({"status": "ok"}), 200
-
-
-def handle_message(sender_id: str, message: dict):
-    text = message.get("text", "").strip()
-    if not text:
-        send_text(sender_id, "Mình chưa đọc được tin nhắn này. Bạn thử gửi text nhé!")
-        return
-
-    lower = text.lower()
-
-    # Xóa trạng thái hỏi ngày khi khách nhắn tin mới (để không bị chặn xử lý)
-    asked_date.pop(sender_id, None)
-
-    if lower in ("hi", "hello", "xin chào", "chào", "bắt đầu"):
-        send_quick_replies(
-            sender_id,
-            "Chào mừng đến với Trăng Non Homestay! Mình có thể giúp gì cho bạn?",
-            [
-                {"title": "Giá phòng",      "payload": "PRICES"},
-                {"title": "Kiểm tra phòng", "payload": "CHECK_AVAIL_MENU"},
-                {"title": "Xem ảnh phòng",  "payload": "PHOTOS_MENU"},
-                {"title": "Liên hệ",        "payload": "CONTACT"},
-            ],
-        )
-        return
-
-    if lower in ("/reset", "xóa lịch sử"):
-        conversation_history.pop(sender_id, None)
-        send_text(sender_id, "Đã xóa lịch sử. Chúng ta bắt đầu lại nhé!")
-        return
-
-    # Khách hỏi phòng nhưng chưa có ngày
-    PHONG_KEYWORDS = ["đặt phòng", "book phòng", "có phòng", "còn phòng", "giá phòng",
-                      "hỏi phòng", "thuê phòng", "xem phòng trống", "phòng trống"]
-    DAT_PHONG_KEYWORDS = ["mình đặt", "cho mình đặt", "đặt nha", "đặt nhé", "ok đặt", "lấy phòng", "đồng ý đặt", "nhận phòng đó", "đặt phòng tiêu chuẩn", "đặt phòng cao cấp", "lấy phòng tiêu chuẩn", "lấy phòng cao cấp", "book phòng tiêu chuẩn", "book phòng cao cấp"]
-
-    # Xác định loại phòng khách chọn (dùng chung bên dưới)
-    loai_phong = "Tiêu chuẩn"
-    if "cao cấp" in lower or "cao cap" in lower:
-        loai_phong = "Cao cấp"
-
-    # Parse ngày trong tin nhắn hiện tại TRƯỚC KHI check keywords
-    _ci, _co = parse_date_range(lower)
-    if _ci and _co:
-        session_checkin[sender_id] = {"checkin": _ci, "checkout": _co}
-        asked_date.pop(sender_id, None)
-    elif _ci and not _co:
-        from datetime import timedelta
-        _co_dt = datetime.strptime(_ci, "%Y-%m-%d") + timedelta(days=1)
-        _co = _co_dt.strftime("%Y-%m-%d")
-        session_checkin[sender_id] = {"checkin": _ci, "checkout": _co}
-
-    info = session_checkin.get(sender_id, {})
-    checkin_s = info.get("checkin", "")
-    checkout_s = info.get("checkout", "")
-
-    # Nếu đã có ngày VÀ khách nhắc tên loại phòng → lưu và hỏi cọc
-    CHON_PHONG_KEYWORDS = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan",
-                           "phòng tiêu chuẩn", "phòng cao cấp", "lấy tiêu chuẩn", "lấy cao cấp",
-                           "đặt tiêu chuẩn", "đặt cao cấp", "book tiêu chuẩn", "book cao cấp"]
-    if checkin_s and checkout_s and any(kw in lower for kw in CHON_PHONG_KEYWORDS):
-        pending_bookings[sender_id] = {
-            "ten": "Khách",
-            "checkin": checkin_s,
-            "checkout": checkout_s,
-            "loai_phong": loai_phong,
-        }
-        send_text(sender_id, f"Bạn chọn phòng {loai_phong} rồi nha. Bạn muốn đặt cọc để giữ phòng không? (chuyển khoản tối thiểu 50% tổng tiền)")
-        return
-
-    # Chưa có ngày + từ khóa đặt phòng rõ ràng → hỏi ngày (chỉ 1 lần)
-    if any(kw in lower for kw in DAT_PHONG_KEYWORDS):
-        if not checkin_s or not checkout_s:
-            if sender_id not in asked_date:
-                asked_date[sender_id] = True
-                send_text(sender_id, "Bạn check-in và check-out ngày nào ạ?")
-            return
-
-
-    # Khách hỏi STK / mã QR / muốn đặt cọc
-    if any(kw in lower for kw in STK_KEYWORDS) and sender_id in pending_bookings:
-        import time
-        send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
-        time.sleep(1)
-        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
-        time.sleep(1)
-        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
-        return
-
-    # Khách báo đã cọc
-    if any(kw in lower for kw in CK_KEYWORDS):
-        send_text(sender_id, "Cảm ơn bạn đã chuyển khoản! Home sẽ kiểm tra và xác nhận sớm nhất nhé.")
-        import time; time.sleep(1)
-        send_text(sender_id, "Trong thời gian chờ, đây là một số lưu ý khi ở tại Trăng Non Homestay:")
-        import time; time.sleep(1)
-        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_LUU_Y, "is_reusable": True}}}})
-        if sender_id in pending_bookings:
-            import time; time.sleep(2)
-            notify_owner(sender_id, pending_bookings[sender_id])
-        return
-
-    # Parse ngày TRƯỚC TIÊN - ưu tiên cao nhất
-    checkin, checkout = parse_date_range(lower)
-    print(f"DEBUG lower={lower!r} | checkin={checkin} | checkout={checkout} | session={session_checkin.get(sender_id)}")
-    if checkin and checkout:
-        session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
-        asked_date.pop(sender_id, None)
-    elif checkin and not checkout:
-        from datetime import datetime, timedelta
-        co_dt = datetime.strptime(checkin, "%Y-%m-%d") + timedelta(days=1)
-        checkout = co_dt.strftime("%Y-%m-%d")
-        session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
-
-    if checkin and checkout:
-        import time
-        CHON_PHONG_INLINE = ["tiêu chuẩn", "cao cấp", "cao cap", "tieu chuan"]
-        loai_inline = "Cao cấp" if ("cao cấp" in lower or "cao cap" in lower) else "Tiêu chuẩn"
-        if any(kw in lower for kw in CHON_PHONG_INLINE):
-            # Có ngày + có loại phòng → báo giá + hỏi cọc
-            pending_bookings[sender_id] = {
-                "ten": "Khách",
-                "checkin": checkin,
-                "checkout": checkout,
-                "loai_phong": loai_inline,
-            }
-            send_availability(sender_id, checkin, checkout)
-            time.sleep(1)
-            send_text(sender_id, f"Bạn muốn đặt cọc phòng {loai_inline} để giữ phòng không?")
-        else:
-            # Chỉ có ngày, chưa chọn phòng → báo giá + gửi ảnh (send_availability đã làm)
-            send_availability(sender_id, checkin, checkout)
-        return
-
-    # Chỉ có 1 ngày trong tin nhắn tiếp theo (checkout)
-    if not checkin and sender_id in session_checkin and session_checkin[sender_id].get("checkout") is None:
-        checkout_dt = parse_single_date(lower)
-        if checkout_dt:
-            checkin = session_checkin[sender_id]["checkin"]
-            checkout = checkout_dt.strftime("%Y-%m-%d")
-            session_checkin[sender_id]["checkout"] = checkout
-            send_availability(sender_id, checkin, checkout)
-            return
-
-    # Nếu khách hỏi giá/thông tin trong khi đã có pending_booking → trả lời từ context, không hỏi ngày
-    if sender_id in pending_bookings:
-        info = pending_bookings[sender_id]
-        ci_dt = datetime.strptime(info["checkin"], "%Y-%m-%d")
-        co_dt = datetime.strptime(info["checkout"], "%Y-%m-%d")
-        so_dem = (co_dt - ci_dt).days
-        loai = info.get("loai_phong", "Tiêu chuẩn")
-        tong = 0
-        for i in range(so_dem):
-            ngay = ci_dt + timedelta(days=i)
-            if ngay.weekday() >= 4:
-                tong += 480000 if "cao" in loai.lower() else 400000
-            else:
-                tong += 440000 if "cao" in loai.lower() else 370000
-        GIA_KEYWORDS = ["giá", "bao nhiêu", "bn", "bao nhieu", "tổng", "tiền", "phí"]
-        if any(kw in lower for kw in GIA_KEYWORDS):
-            ci_str = ci_dt.strftime("%d/%m")
-            co_str = co_dt.strftime("%d/%m")
-            msg = "Phong " + loai + " " + str(so_dem) + " dem (" + ci_str + " - " + co_str + "): " + str(tong//1000) + "k a.\nBan muon dat phong khong?"
-            send_text(sender_id, msg)
-            return
-
-    reply = ask_openai(sender_id, text)
-
-    # Chỉ gửi ảnh thumbnail khi khách chưa có ngày (hỏi thông tin), không gửi khi đang trong flow đặt phòng
-    has_dates = bool(session_checkin.get(sender_id, {}).get("checkin"))
-    if "SEND_THUMB_TIEU_CHUAN" in reply and not has_dates:
-        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_TIEU_CHUAN, "is_reusable": True}}}})
-    elif "SEND_THUMB_CAO_CAP" in reply and not has_dates:
-        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_CAO_CAP, "is_reusable": True}}}})
-    elif "SEND_PHOTOS_TIEU_CHUAN" in reply:
-        send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
-        send_photos(sender_id, PHOTOS_TIEU_CHUAN)
-    elif "SEND_PHOTOS_CAO_CAP" in reply:
-        send_text(sender_id, "Ảnh phòng Cao Cấp:")
-        send_photos(sender_id, PHOTOS_CAO_CAP)
-    elif "SEND_PAYMENT_INFO" in reply:
-        # Chỉ gửi STK khi khách chủ động hỏi STK/cọc
-        import time
-        send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
-        time.sleep(1)
-        _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
-        time.sleep(1)
-        send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhan 'da coc' de thong bao cho home nhe!")
-    elif "CHECK_AVAILABILITY" in reply:
-        send_quick_replies(sender_id, "Bạn muốn kiểm tra phòng thời gian nào?", [
-            {"title": "Cuối tuần này", "payload": "AVAIL_THIS_WEEKEND"},
-            {"title": "Tuần tới",      "payload": "AVAIL_NEXT_WEEK"},
-            {"title": "Nhập ngày khác","payload": "AVAIL_CUSTOM"},
-        ])
-    else:
-        send_text(sender_id, reply)
-
-
-def handle_postback(sender_id: str, postback: dict):
-    payload = postback.get("payload", "")
-
-    if payload.startswith("CONFIRM_BOOKING:"):
-        guest_id = payload.split(":")[1]
-        info = pending_bookings.get(guest_id, {})
-        if info:
-            success = create_gohost_booking(info)
-            if success:
-                send_text(sender_id, f"Đã tạo đơn trên GoHost!\nKhách: {info.get('ten','?')}")
-                send_text(guest_id, "Phòng của bạn đã được xác nhận! Hẹn gặp bạn tại Trăng Non Homestay. Liên hệ 083 285 0488 nếu cần nhé!")
-                pending_bookings.pop(guest_id, None)
-            else:
-                send_text(sender_id, "Lỗi tạo đơn GoHost. Vui lòng tạo thủ công nhé!")
-        return
-
-    if payload.startswith("REJECT_BOOKING:"):
-        guest_id = payload.split(":")[1]
-        send_text(sender_id, "Đã từ chối đặt phòng.")
-        send_text(guest_id, "Rất tiếc phòng chưa được xác nhận. Liên hệ 083 285 0488 để biết thêm nhé!")
-        pending_bookings.pop(guest_id, None)
-        return
-
-    if payload == "PHOTOS_MENU":
-        send_quick_replies(sender_id, "Bạn muốn xem ảnh phòng nào?", [
-            {"title": "Phòng Tiêu Chuẩn", "payload": "PHOTOS_TIEU_CHUAN"},
-            {"title": "Phòng Cao Cấp",    "payload": "PHOTOS_CAO_CAP"},
-        ])
-        return
-
-    if payload == "PHOTOS_TIEU_CHUAN":
-        send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
-        send_photos(sender_id, PHOTOS_TIEU_CHUAN)
-        return
-
-    if payload == "PHOTOS_CAO_CAP":
-        send_text(sender_id, "Ảnh phòng Cao Cấp:")
-        send_photos(sender_id, PHOTOS_CAO_CAP)
-        return
-
-    if payload == "CHECK_AVAIL_MENU":
-        send_quick_replies(sender_id, "Bạn muốn kiểm tra phòng thời gian nào?", [
-            {"title": "Cuối tuần này", "payload": "AVAIL_THIS_WEEKEND"},
-            {"title": "Tuần tới",      "payload": "AVAIL_NEXT_WEEK"},
-            {"title": "Nhập ngày khác","payload": "AVAIL_CUSTOM"},
-        ])
-        return
-
-    if payload == "AVAIL_THIS_WEEKEND":
-        today = datetime.now()
-        days_to_sat = (5 - today.weekday()) % 7 or 7
-        sat = today + timedelta(days=days_to_sat)
-        sun = sat + timedelta(days=1)
-        send_text(sender_id, check_room_availability(sat.strftime("%Y-%m-%d"), sun.strftime("%Y-%m-%d")))
-        return
-
-    if payload == "AVAIL_NEXT_WEEK":
-        today = datetime.now()
-        next_mon = today + timedelta(days=(7 - today.weekday()))
-        next_sun = next_mon + timedelta(days=6)
-        send_text(sender_id, check_room_availability(next_mon.strftime("%Y-%m-%d"), next_sun.strftime("%Y-%m-%d")))
-        return
-
-    if payload == "AVAIL_CUSTOM":
-        send_text(sender_id, "Bạn nhắn ngày muốn check-in, ví dụ:\n- 15/6\n- 15/6 - 17/6\n- thứ 6\n- cuối tuần này")
-        return
-
-    responses = {
-        "PRICES":  "Giá phòng Trăng Non:\n\nPhòng Tiêu Chuẩn:\n- Trong tuần: 370k/đêm\n- Cuối tuần: 400k/đêm\n\nPhòng Cao Cấp:\n- Trong tuần: 440k/đêm\n- Cuối tuần: 480k/đêm",
-        "CONTACT": "Hotline: 083 285 0488\n17/14B Lương Văn Năm, Phan Thiết",
-        "GET_STARTED": "Chào mừng đến với Trăng Non Homestay!",
-    }
-    reply = responses.get(payload)
-    if reply:
-        send_text(sender_id, reply)
-    else:
-        send_text(sender_id, ask_openai(sender_id, postback.get("title", payload)))
-
-
-def ask_openai(sender_id: str, user_text: str) -> str:
-    history = conversation_history.setdefault(sender_id, [])
-    history.append({"role": "user", "content": user_text})
-    if len(history) > MAX_HISTORY * 2:
-        history[:] = history[-(MAX_HISTORY * 2):]
-
-    # Inject ngày vào system prompt nếu đã có → AI không hỏi lại ngày
-    session_info = session_checkin.get(sender_id, {})
-    ci = session_info.get("checkin", "")
-    co = session_info.get("checkout", "")
-    system = SYSTEM_PROMPT
-    if ci and co:
-        ci_str = datetime.strptime(ci, "%Y-%m-%d").strftime("%d/%m/%Y")
-        co_str = datetime.strptime(co, "%Y-%m-%d").strftime("%d/%m/%Y")
-        today_str = datetime.now().strftime("%d/%m/%Y")
-        is_checkin_day = (today_str == ci_str)
-        system += f"\n\nLƯU Ý QUAN TRỌNG: Khách đã cung cấp ngày check-in {ci_str} và check-out {co_str}. TUYỆT ĐỐI KHÔNG hỏi ngày nữa."
-        if is_checkin_day:
-            system += f" Hôm nay {today_str} ĐÚNG LÀ ngày check-in của khách."
-        else:
-            system += f" Hôm nay {today_str} CHƯA PHẢI ngày check-in của khách."
-
-    try:
-        print(f"Đang gọi OpenAI...")
-        resp = requests.post(
-            OPENAI_API_URL,
-            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "system", "content": system}] + history,
-                "max_tokens": 400,
-                "temperature": 0.7,
-            },
-            timeout=15,
-        )
-        print(f"OpenAI status: {resp.status_code}")
-        resp.raise_for_status()
-        reply_text = resp.json()["choices"][0]["message"]["content"].strip()
-        print(f"OpenAI reply: {reply_text[:80]}")
-
-        # Lọc nếu AI hỏi SĐT
-        if any(p in reply_text.lower() for p in ["số điện thoại", "phone", "sđt"]):
-            full = " ".join([m.get("content","") for m in history])
-            if any(kw in full.lower() for kw in ["tên", "mình là", "tôi là", "em là"]):
-                return "SEND_PAYMENT_INFO"
-
-        history.append({"role": "assistant", "content": reply_text})
-        return reply_text
-
-    except requests.exceptions.Timeout:
-        print("OPENAI TIMEOUT!")
-        return "Mình đang bận, bạn thử lại sau vài giây nhé!"
-    except Exception as e:
-        print(f"LỖI OPENAI: {e}")
-        return "Xin lỗi, hệ thống đang bận. Liên hệ 083 285 0488 để được hỗ trợ nhé!"
-
-
-def send_text(recipient_id: str, text: str):
-    _send({"recipient": {"id": recipient_id}, "message": {"text": text}})
-
-
-def send_quick_replies(recipient_id: str, text: str, replies: list):
-    _send({
-        "recipient": {"id": recipient_id},
-        "message": {
-            "text": text,
-            "quick_replies": [
-                {"content_type": "text", "title": r["title"], "payload": r["payload"]}
-                for r in replies
-            ],
-        },
-    })
-
-
-def send_photos(recipient_id: str, photos: list, limit: int = 4):
-    selected = random.sample(photos, min(limit, len(photos)))
-    for url in selected:
-        _send({"recipient": {"id": recipient_id}, "message": {"attachment": {"type": "image", "payload": {"url": url, "is_reusable": True}}}})
-
-
-def _send(payload: dict):
-    resp = requests.post(
-        GRAPH_API_URL,
-        params={"access_token": PAGE_ACCESS_TOKEN},
-        json=payload,
-        timeout=10,
-    )
-    if not resp.ok:
-        print(f"Lỗi gửi tin: {resp.status_code} - {resp.text}")
-    return resp
-
-
-def verify_signature(payload: bytes, signature: str) -> bool:
-    if not signature.startswith("sha256="):
-        return False
-    expected = hmac.new(APP_SECRET.encode(), payload, hashlib.sha256).hexdigest()
-    print(f"EXPECTED=sha256={expected[:10]} GOT={signature[:20]}")
-    return hmac.compare_digest(f"sha256={expected}", signature)
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+WEEKDAYS_VI = {
+    "thứ 2": 0, "thu 2": 0, "thứ hai": 0, "thu hai": 0,
+    "thứ 3": 1, "thu 3": 1, "thứ ba": 1, "thu ba": 1,
+    "thứ 4": 2, "thu 4": 2, "thứ tư": 2, "thu tu": 2,
+    "thứ 5": 3, "thu 5": 3, "thứ năm": 3, "thu nam": 3,
+    "thứ 6": 4, "thu 6": 4, "thứ sáu": 4, "thu sau": 4,
+    "thứ 7": 5, "thu 7": 5, "thứ bảy": 5, "thu bay": 5,
+    "chủ nhật": 6, "chu nhat": 6, "cn": 6,
+}
+
+def parse_single_date(text: str) -> datetime | None:
+    text = text.strip().lower()
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Hôm nay / tối nay / trưa nay / chiều nay
+    if any(kw in text for kw in ["hôm nay", "hom nay", "tối nay", "toi nay",
+                                   "trưa nay", "trua nay", "chiều nay", "chieu nay",
+                                   "sáng nay", "sang nay"]):
+        return today
+
+    # Ngày mai / tối mai / trưa mai / chiều mai / sáng mai
+    if any(kw in text for kw in ["ngày mai", "ngay mai", "tối mai", "toi mai",
+                                   "trưa mai", "trua mai", "chiều mai", "chieu mai",
+                                   "sáng mai", "sang mai", " mai"]):
+        return today + timedelta(days=1)
+
+    # Ngày kia
+    if any(kw in text for kw in ["ngày kia", "ngay kia", "ngày mốt", "ngay mot"]):
+        return today + timedelta(days=2)
+
+    # Cuối tuần này
+    if any(kw in text for kw in ["cuối tuần", "cuoi tuan"]):
+        days_to_saturday = (5 - today.weekday()) % 7
+        if days_to_saturday == 0:
+            days_to_saturday = 7
+        return today + timedelta(days=days_to_saturday)
+
+    # Thứ X
+    for day_name, weekday in WEEKDAYS_VI.items():
+        if day_name in text:
+            days_ahead = weekday - today.weekday()
+            if "tuần sau" in text or "tuan sau" in text:
+                days_ahead += 7
+            elif days_ahead <= 0:
+                days_ahead += 7
+            return today + timedelta(days=days_ahead)
+
+    # DD/MM/YYYY hoặc DD/MM
+    patterns = [
+        r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})",
+        r"(\d{1,2})[/-](\d{1,2})",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text)
+        if m:
+            try:
+                if len(m.groups()) == 3:
+                    return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                else:
+                    year = today.year
+                    dt = datetime(year, int(m.group(2)), int(m.group(1)))
+                    if dt < today:
+                        dt = datetime(year + 1, int(m.group(2)), int(m.group(1)))
+                    return dt
+            except:
+                pass
+    return None
+
+
+def parse_date_range(text: str):
+    text_lower = text.lower().strip()
+
+    # Tách 2 ngày bằng dấu phân cách
+    separators = [" đến ", " den ", " tới ", " toi ", " to ", " - ", "-"]
+    for sep in separators:
+        if sep in text_lower:
+            parts = text_lower.split(sep, 1)
+            if len(parts) == 2:
+                d1 = parse_single_date(parts[0].strip())
+                d2 = parse_single_date(parts[1].strip())
+                if d1 and d2 and d2 > d1:
+                    return d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
+
+    # Tìm 2 ngày dạng DD/MM trong cùng 1 câu
+    matches = re.findall(r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{4})?", text_lower)
+    if len(matches) >= 2:
+        d1 = parse_single_date(matches[0])
+        d2 = parse_single_date(matches[1])
+        if d1 and d2 and d2 > d1:
+            return d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
+
+    # Chỉ 1 ngày → mặc định 1 đêm
+    d1 = parse_single_date(text_lower)
+    if d1:
+        return d1.strftime("%Y-%m-%d"), (d1 + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    return None, None
