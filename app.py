@@ -374,18 +374,19 @@ def handle_message(sender_id: str, message: dict):
             loai_phong = "Cao cấp"
 
         if checkin_s and checkout_s:
-            # Có ngày → gửi ảnh tiện ích + hỏi xác nhận đặt phòng
+            # Có ngày + khách chốt đặt → gửi STK luôn
+            import time
             pending_bookings[sender_id] = {
                 "ten": "Khách",
                 "checkin": checkin_s,
                 "checkout": checkout_s,
                 "loai_phong": loai_phong,
             }
-            import time
-            photo_thumb = PHOTO_THUMB_CAO_CAP if loai_phong == "Cao cấp" else PHOTO_THUMB_TIEU_CHUAN
-            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": photo_thumb, "is_reusable": True}}}})
+            send_text(sender_id, "Vui lòng chuyển khoản để giữ phòng (cọc tối thiểu 50% tổng tiền):")
             time.sleep(1)
-            send_text(sender_id, f"Đây là ảnh phòng {loai_phong} bạn chọn. Bạn muốn đặt phòng này không ạ?")
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_PAYMENT, "is_reusable": True}}}})
+            time.sleep(1)
+            send_text(sender_id, "Sau khi chuyển khoản xong, bạn nhắn 'đã cọc' để thông báo cho home nhé!")
             return
         else:
             # Chưa có ngày → hỏi ngày (chỉ hỏi 1 lần)
@@ -469,9 +470,11 @@ def handle_message(sender_id: str, message: dict):
 
     reply = ask_openai(sender_id, text)
 
-    if "SEND_THUMB_TIEU_CHUAN" in reply:
+    # Chỉ gửi ảnh thumbnail khi khách chưa có ngày (hỏi thông tin), không gửi khi đang trong flow đặt phòng
+    has_dates = bool(session_checkin.get(sender_id, {}).get("checkin"))
+    if "SEND_THUMB_TIEU_CHUAN" in reply and not has_dates:
         _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_TIEU_CHUAN, "is_reusable": True}}}})
-    elif "SEND_THUMB_CAO_CAP" in reply:
+    elif "SEND_THUMB_CAO_CAP" in reply and not has_dates:
         _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_CAO_CAP, "is_reusable": True}}}})
     elif "SEND_PHOTOS_TIEU_CHUAN" in reply:
         send_text(sender_id, "Ảnh phòng Tiêu Chuẩn:")
