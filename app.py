@@ -424,6 +424,7 @@ def handle_message(sender_id: str, message: dict):
 
     # Parse ngày TRƯỚC TIÊN - ưu tiên cao nhất
     checkin, checkout = parse_date_range(lower)
+    print(f"DEBUG lower={lower!r} | checkin={checkin} | checkout={checkout} | session={session_checkin.get(sender_id)}")
     if checkin and checkout:
         session_checkin[sender_id] = {"checkin": checkin, "checkout": checkout}
         asked_date.pop(sender_id, None)
