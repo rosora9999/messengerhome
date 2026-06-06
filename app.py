@@ -254,6 +254,23 @@ def check_room_availability(checkin: str, checkout: str) -> str:
         return "Hiện không kiểm tra được lịch phòng. Liên hệ 083 285 0488 nhé!"
 
 
+def send_availability(sender_id: str, checkin: str, checkout: str):
+    import time
+    result = check_room_availability(checkin, checkout)
+    send_text(sender_id, result)
+    # Nếu còn phòng thì gửi ảnh thumbnail
+    if "hết phòng" not in result and "không kiểm tra" not in result:
+        time.sleep(1)
+        if "Tiêu Chuẩn" in result and "Cao Cấp" in result:
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_TIEU_CHUAN, "is_reusable": True}}}})
+            time.sleep(1)
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_CAO_CAP, "is_reusable": True}}}})
+        elif "Tiêu Chuẩn" in result:
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_TIEU_CHUAN, "is_reusable": True}}}})
+        elif "Cao Cấp" in result:
+            _send({"recipient": {"id": sender_id}, "message": {"attachment": {"type": "image", "payload": {"url": PHOTO_THUMB_CAO_CAP, "is_reusable": True}}}})
+
+
 def create_gohost_booking(info: dict) -> bool:
     try:
         room_type_id = ROOM_CAO_CAP if "cao" in info.get("loai_phong", "").lower() else ROOM_TIEU_CHUAN
@@ -468,10 +485,10 @@ def handle_message(sender_id: str, message: dict):
                 "checkout": checkout,
                 "loai_phong": loai_inline,
             }
-            send_text(sender_id, check_room_availability(checkin, checkout))
+            send_availability(sender_id, checkin, checkout)
         else:
             # Chỉ có ngày, chưa chọn phòng → báo giá bình thường
-            send_text(sender_id, check_room_availability(checkin, checkout))
+            send_availability(sender_id, checkin, checkout)
         return
 
     # Chỉ có 1 ngày trong tin nhắn tiếp theo (checkout)
@@ -481,7 +498,7 @@ def handle_message(sender_id: str, message: dict):
             checkin = session_checkin[sender_id]["checkin"]
             checkout = checkout_dt.strftime("%Y-%m-%d")
             session_checkin[sender_id]["checkout"] = checkout
-            send_text(sender_id, check_room_availability(checkin, checkout))
+            send_availability(sender_id, checkin, checkout)
             return
 
     # Nếu khách hỏi giá/thông tin trong khi đã có pending_booking → trả lời từ context, không hỏi ngày
