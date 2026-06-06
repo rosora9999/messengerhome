@@ -12,19 +12,33 @@ WEEKDAYS_VI = {
 }
 
 def parse_single_date(text: str) -> datetime | None:
-    """Parse 1 ngày từ text tiếng Việt."""
     text = text.strip().lower()
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Hôm nay, ngày mai, ngày kia
-    if text in ("hôm nay", "hom nay"):
+    # Hôm nay / tối nay / trưa nay / chiều nay
+    if any(kw in text for kw in ["hôm nay", "hom nay", "tối nay", "toi nay",
+                                   "trưa nay", "trua nay", "chiều nay", "chieu nay",
+                                   "sáng nay", "sang nay"]):
         return today
-    if text in ("ngày mai", "ngay mai", "mai"):
+
+    # Ngày mai / tối mai / trưa mai / chiều mai / sáng mai
+    if any(kw in text for kw in ["ngày mai", "ngay mai", "tối mai", "toi mai",
+                                   "trưa mai", "trua mai", "chiều mai", "chieu mai",
+                                   "sáng mai", "sang mai", " mai"]):
         return today + timedelta(days=1)
-    if text in ("ngày kia", "ngay kia", "kia"):
+
+    # Ngày kia
+    if any(kw in text for kw in ["ngày kia", "ngay kia", "ngày mốt", "ngay mot"]):
         return today + timedelta(days=2)
 
-    # Thứ X tuần này / tuần sau
+    # Cuối tuần này
+    if any(kw in text for kw in ["cuối tuần", "cuoi tuan"]):
+        days_to_saturday = (5 - today.weekday()) % 7
+        if days_to_saturday == 0:
+            days_to_saturday = 7
+        return today + timedelta(days=days_to_saturday)
+
+    # Thứ X
     for day_name, weekday in WEEKDAYS_VI.items():
         if day_name in text:
             days_ahead = weekday - today.weekday()
@@ -34,20 +48,10 @@ def parse_single_date(text: str) -> datetime | None:
                 days_ahead += 7
             return today + timedelta(days=days_ahead)
 
-    # Cuối tuần
-    if "cuối tuần" in text or "cuoi tuan" in text:
-        days_to_saturday = (5 - today.weekday()) % 7
-        if days_to_saturday == 0:
-            days_to_saturday = 7
-        return today + timedelta(days=days_to_saturday)
-
-    # "ngày X/Y" hoặc "ngay X/Y"
-    text = re.sub(r"ng[aà]y\s+", "", text)
-
-    # DD/MM/YYYY hoặc D/M/YYYY hoặc DD/MM hoặc D/M
+    # DD/MM/YYYY hoặc DD/MM
     patterns = [
-        r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})",  # DD/MM/YYYY
-        r"(\d{1,2})[/-](\d{1,2})",               # DD/MM (năm hiện tại)
+        r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})",
+        r"(\d{1,2})[/-](\d{1,2})",
     ]
     for pattern in patterns:
         m = re.search(pattern, text)
@@ -63,35 +67,34 @@ def parse_single_date(text: str) -> datetime | None:
                     return dt
             except:
                 pass
-
     return None
 
 
 def parse_date_range(text: str):
-    """
-    Parse khoảng ngày từ text tiếng Việt.
-    Trả về (checkin_str, checkout_str) dạng YYYY-MM-DD hoặc (None, None).
-    """
     text_lower = text.lower().strip()
 
-    # Tách 2 ngày bằng dấu "-", "đến", "tới", "to"
+    # Tách 2 ngày bằng dấu phân cách
     separators = [" đến ", " den ", " tới ", " toi ", " to ", " - ", "-"]
-    parts = None
     for sep in separators:
         if sep in text_lower:
             parts = text_lower.split(sep, 1)
-            break
+            if len(parts) == 2:
+                d1 = parse_single_date(parts[0].strip())
+                d2 = parse_single_date(parts[1].strip())
+                if d1 and d2 and d2 > d1:
+                    return d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
 
-    if parts and len(parts) == 2:
-        d1 = parse_single_date(parts[0].strip())
-        d2 = parse_single_date(parts[1].strip())
+    # Tìm 2 ngày dạng DD/MM trong cùng 1 câu
+    matches = re.findall(r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{4})?", text_lower)
+    if len(matches) >= 2:
+        d1 = parse_single_date(matches[0])
+        d2 = parse_single_date(matches[1])
         if d1 and d2 and d2 > d1:
             return d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
 
-    # Chỉ 1 ngày → mặc định ở 1 đêm
+    # Chỉ 1 ngày → mặc định 1 đêm
     d1 = parse_single_date(text_lower)
     if d1:
-        d2 = d1 + timedelta(days=1)
-        return d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d")
+        return d1.strftime("%Y-%m-%d"), (d1 + timedelta(days=1)).strftime("%Y-%m-%d")
 
     return None, None
