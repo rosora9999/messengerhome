@@ -339,6 +339,9 @@ def handle_message(sender_id: str, message: dict):
 
     lower = text.lower()
 
+    # Xóa trạng thái hỏi ngày khi khách nhắn tin mới (để không bị chặn xử lý)
+    asked_date.pop(sender_id, None)
+
     if lower in ("hi", "hello", "xin chào", "chào", "bắt đầu"):
         send_quick_replies(
             sender_id,
